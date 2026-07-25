@@ -1,0 +1,230 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model Usuario {
+  id                   Int                 @id @default(autoincrement())
+  idPuesto             Int
+  nombre               String              @db.NVarChar(255)
+  correo               String              @unique @db.NVarChar(255)
+  contrasena           String              @db.NVarChar(255)
+  telefono             String?             @db.NVarChar(50)
+  fechaCreacion        DateTime            @db.DateTime2
+  fechaActualizacion   DateTime            @db.DateTime2
+  anulado              Boolean             @default(false)
+  aperturasCaja        AperturaCaja[]
+  permiso              Permisos[]
+  puesto               Puestos             @relation(fields: [idPuesto], references: [id])
+  actividadesCreadas   ActividadesParque[] @relation("ActividadCreador")
+  actividadesAsignadas ActividadesParque[] @relation("ActividadResponsable")
+}
+
+model Modulo {
+  id                 Int       @id @default(autoincrement())
+  nombre             String    @unique @db.NVarChar(100)
+  anulado            Boolean   @default(false)
+  fechaCreacion      DateTime  @default(now()) @db.DateTime2
+  fechaActualizacion DateTime? @updatedAt @db.DateTime2
+
+  // Relación con las acciones que este módulo permite tener
+  moduloAcciones ModuloAccion[]
+}
+
+model Accion {
+  id     Int    @id @default(autoincrement())
+  // Aquí guardarás valores como: "ver", "agregar", "editar", "anular", "exportar"
+  nombre String @unique @db.NVarChar(50)
+
+  moduloAcciones ModuloAccion[]
+}
+
+// Esta tabla define qué acciones aplican a qué módulo
+model ModuloAccion {
+  id       Int @id @default(autoincrement())
+  idModulo Int
+  idAccion Int
+
+  modulo   Modulo     @relation(fields: [idModulo], references: [id])
+  accion   Accion     @relation(fields: [idAccion], references: [id])
+  permisos Permisos[]
+
+  // Un módulo no puede tener la misma acción duplicada
+  @@unique([idModulo, idAccion])
+}
+
+// La asignación final al usuario
+model Permisos {
+  id             Int @id @default(autoincrement())
+  idUsuario      Int
+  idModuloAccion Int
+
+  usuario      Usuario      @relation(fields: [idUsuario], references: [id])
+  moduloAccion ModuloAccion @relation(fields: [idModuloAccion], references: [id])
+
+  // Un usuario no debería tener el mismo permiso asignado dos veces
+  @@unique([idUsuario, idModuloAccion])
+}
+
+model Puestos {
+  id                 Int       @id @default(autoincrement())
+  nombre             String    @unique @db.NVarChar(100)
+  descripcion        String?   @db.NVarChar(Max)
+  anulado            Boolean   @default(false)
+  fechaCreacion      DateTime  @db.DateTime2
+  fechaActualizacion DateTime? @db.DateTime2
+  usuarios           Usuario[]
+}
+
+model Ticket {
+  id                 Int           @id @default(autoincrement())
+  idTipoRecorrido    Int
+  idAperturaCaja     Int
+  idUsuario          Int
+  nombre             String        @db.NVarChar(255)
+  observaciones      String?       @db.NVarChar(255)
+  fechaCreacion      DateTime      @db.DateTime2
+  fechaActualizacion DateTime?     @db.DateTime2
+  anulado            Boolean       @default(false)
+  Qr                 String
+  tiporecorrido      TipoRecorrido @relation(fields: [idTipoRecorrido], references: [id])
+
+  visitantePorTickets VisitantePorTicket[]
+  ticketPagos         TicketPago[]
+}
+
+model VisitantePorTicket {
+  id              Int           @id @default(autoincrement())
+  idTicket        Int
+  idTipoVisitante Int
+  cantidad        Int
+  tickets         Ticket        @relation(fields: [idTicket], references: [id])
+  tipoVisitantes  TipoVisitante @relation(fields: [idTipoVisitante], references: [id])
+}
+
+model TipoRecorrido {
+  id                 Int       @id @default(autoincrement())
+  nombre             String
+  fechaCreacion      DateTime  @db.DateTime2
+  fechaActualizacion DateTime? @db.DateTime2
+  anulado            Boolean
+  tickets            Ticket[]
+}
+
+model TipoVisitante {
+  id                  Int                  @id @default(autoincrement())
+  nombre              String               @db.NVarChar(255)
+  fechaCreacion       DateTime             @db.DateTime2
+  fechaActualizacion  DateTime?            @db.DateTime2
+  anulado             Boolean              @default(false)
+  visitantePorTickets VisitantePorTicket[]
+}
+
+model OpcionPago {
+  id                 Int          @id @default(autoincrement())
+  nombre             String       @db.NVarChar(100)
+  anulado            Boolean      @default(false)
+  fechaCreacion      DateTime     @db.DateTime2
+  fechaActualizacion DateTime?    @db.DateTime2
+  ticketsPago        TicketPago[]
+}
+
+model TicketPago {
+  id                 Int        @id @default(autoincrement())
+  idTicket           Int
+  idOpcionPago       Int
+  numeroComprobante  String?    @db.NVarChar(100)
+  idPagoPasarela     String?    @db.NVarChar(255)
+  monto              Decimal    @db.Decimal(18, 4)
+  fechaCreacion      DateTime   @db.DateTime2
+  fechaActualizacion DateTime?  @db.DateTime2
+  anulado            Boolean    @default(false)
+  tickets            Ticket     @relation(fields: [idTicket], references: [id])
+  opcionPago         OpcionPago @relation(fields: [idOpcionPago], references: [id])
+}
+
+model AperturaCaja {
+  id                 Int          @id @default(autoincrement())
+  idUsuario          Int
+  fechaCreacion      DateTime     @db.DateTime2
+  fechaActualizacion DateTime?    @db.DateTime2
+  idEstado           Int
+  montoInicial       Decimal      @db.Decimal(18, 4)
+  observaciones      String?      @db.NVarChar(Max)
+  anulado            Boolean      @default(false)
+  usuario            Usuario      @relation(fields: [idUsuario], references: [id])
+  cierresCaja        CierreCaja[]
+  gastos             Gastos[]
+  estado             EstadoCaja   @relation(fields: [idEstado], references: [id])
+}
+
+model EstadoCaja {
+  id       Int            @id @default(autoincrement())
+  nombre   String         @db.NVarChar(255)
+  apertura AperturaCaja[]
+}
+
+model Gastos {
+  id                 Int           @id @default(autoincrement())
+  idTipoGasto        Int
+  idAperturaCaja     Int?
+  descripcion        String        @db.NVarChar(255)
+  monto              Decimal       @db.Decimal(18, 4)
+  fechaCreacion      DateTime      @db.DateTime2
+  fechaActualizacion DateTime?     @db.DateTime2
+  anulado            Boolean       @default(false)
+  aperturaCaja       AperturaCaja? @relation(fields: [idAperturaCaja], references: [id])
+  tipoGasto          TipoGasto     @relation(fields: [idTipoGasto], references: [id])
+}
+
+model TipoGasto {
+  id      Int      @id @default(autoincrement())
+  nombre  String   @db.NVarChar(255)
+  anulado Boolean  @default(false)
+  gastos  Gastos[]
+}
+
+model CierreCaja {
+  id            Int          @id @default(autoincrement())
+  idApertura    Int
+  fechaCierre   DateTime     @db.DateTime2
+  montoFinal    Decimal      @db.Decimal(18, 4)
+  observaciones String?      @db.NVarChar(Max)
+  anulado       Boolean      @default(false)
+  aperturaCaja  AperturaCaja @relation(fields: [idApertura], references: [id])
+}
+
+model ActividadesParque {
+  id                   Int          @id @default(autoincrement())
+  idSectorParque       Int
+  idUsuarioCreador     Int
+  idUsuarioResponsable Int
+  nombreActividad      String
+  fechaCreacion        DateTime     @db.DateTime2
+  fechaActualizacion   DateTime?    @db.DateTime2
+  descripcionActividad String
+  imagen               String?
+  anulado              Boolean      @default(false)
+  usuarios             Usuario      @relation("ActividadCreador", fields: [idUsuarioCreador], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuariosAsignado     Usuario      @relation("ActividadResponsable", fields: [idUsuarioResponsable], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sector               SectorParque @relation(fields: [idSectorParque], references: [id])
+}
+
+model SectorParque {
+  id                 Int                 @id @default(autoincrement())
+  nombre             String              @db.NVarChar(255)
+  fechaCreacion      DateTime            @db.DateTime2
+  fechaActualizacion DateTime?           @db.DateTime2
+  anulado            Boolean             @default(false)
+  actividades        ActividadesParque[]
+}
