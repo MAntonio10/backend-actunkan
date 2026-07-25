@@ -6,6 +6,7 @@ import {
   Param,
   Delete,
   ParseIntPipe,
+  Request,
 } from '@nestjs/common';
 import { ModuloAccionesService } from './modulo-acciones.service';
 import { CreateModuloAccionDto } from './dto/create-modulo-accion.dto';
@@ -17,33 +18,41 @@ export class ModuloAccionesController {
     private readonly moduloAccionesService: ModuloAccionesService,
   ) {}
 
+  private getEjecutor(req: any) {
+    if (!req.user) return undefined;
+    return {
+      id: req.user.sub ?? req.user.id,
+      email: req.user.email,
+    };
+  }
+
   @Post()
-  @RequirePermission('modulos', 'editar')
-  create(@Body() createModuloAccionDto: CreateModuloAccionDto) {
-    return this.moduloAccionesService.create(createModuloAccionDto);
+  @RequirePermission('Modulos', 'Editar')
+  create(@Body() createModuloAccionDto: CreateModuloAccionDto, @Request() req: any) {
+    return this.moduloAccionesService.create(createModuloAccionDto, this.getEjecutor(req));
   }
 
   @Get()
-  @RequirePermission('modulos', 'ver')
+  @RequirePermission('Modulos', 'Ver')
   findAll() {
     return this.moduloAccionesService.findAll();
   }
 
   @Get('modulo/:idModulo')
-  @RequirePermission('modulos', 'ver')
+  @RequirePermission('Modulos', 'Ver')
   findByModulo(@Param('idModulo', ParseIntPipe) idModulo: number) {
     return this.moduloAccionesService.findByModulo(idModulo);
   }
 
   @Get(':id')
-  @RequirePermission('modulos', 'ver')
+  @RequirePermission('Modulos', 'Ver')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.moduloAccionesService.findOne(id);
   }
 
   @Delete(':id')
-  @RequirePermission('modulos', 'anular')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.moduloAccionesService.remove(id);
+  @RequirePermission('Modulos', 'Anular')
+  remove(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
+    return this.moduloAccionesService.remove(id, this.getEjecutor(req));
   }
 }

@@ -1,12 +1,18 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { BitacoraService } from '../bitacora/bitacora.service';
 import { CreateModuloAccionDto } from './dto/create-modulo-accion.dto';
+
+export interface EjecutorInfo {
+  id: number;
+  email?: string;
+}
 
 @Injectable()
 export class ModuloAccionesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateModuloAccionDto) {
+  async create(dto: CreateModuloAccionDto, ejecutor?: EjecutorInfo) {
     return this.prisma.$transaction(async (tx) => {
       const modulo = await tx.modulo.findUnique({
         where: { id: dto.idModulo },
@@ -43,7 +49,7 @@ export class ModuloAccionesService {
         );
       }
 
-      return tx.moduloAccion.create({
+      const nuevaRelacion = await tx.moduloAccion.create({
         data: {
           idModulo: dto.idModulo,
           idAccion: dto.idAccion,
@@ -53,6 +59,22 @@ export class ModuloAccionesService {
           accion: true,
         },
       });
+
+      let nombreEjecutor = ejecutor?.email;
+      if (ejecutor?.id) {
+        const uEj = await tx.usuario.findUnique({ where: { id: ejecutor.id } });
+        if (uEj) nombreEjecutor = uEj.nombre;
+      }
+
+      await BitacoraService.registrarEnTransaccion(tx, {
+        idUsuario: ejecutor?.id,
+        usuarioNombre: nombreEjecutor,
+        accion: 'VINCULAR_MODULO_ACCION',
+        modulo: 'Modulos',
+        descripcion: `Se vinculó la acción '${accion.nombre}' al módulo '${modulo.nombre}'.`,
+      });
+
+      return nuevaRelacion;
     });
   }
 
@@ -101,10 +123,14 @@ export class ModuloAccionesService {
     return moduloAccion;
   }
 
-  async remove(id: number) {
+  async remove(id: number, ejecutor?: EjecutorInfo) {
     return this.prisma.$transaction(async (tx) => {
       const moduloAccion = await tx.moduloAccion.findUnique({
         where: { id },
+        include: {
+          modulo: true,
+          accion: true,
+        },
       });
 
       if (!moduloAccion) {
@@ -113,9 +139,29 @@ export class ModuloAccionesService {
         );
       }
 
-      return tx.moduloAccion.delete({
+      await tx.permisos.deleteMany({
+        where: { idModuloAccion: id },
+      });
+
+      const desvinculado = await tx.moduloAccion.delete({
         where: { id },
       });
+
+      let nombreEjecutor = ejecutor?.email;
+      if (ejecutor?.id) {
+        const uEj = await tx.usuario.findUnique({ where: { id: ejecutor.id } });
+        if (uEj) nombreEjecutor = uEj.nombre;
+      }
+
+      await BitacoraService.registrarEnTransaccion(tx, {
+        idUsuario: ejecutor?.id,
+        usuarioNombre: nombreEjecutor,
+        accion: 'DESVINCULAR_MODULO_ACCION',
+        modulo: 'Modulos',
+        descripcion: `Se desvinculó la acción '${moduloAccion.accion?.nombre}' del módulo '${moduloAccion.modulo?.nombre}'.`,
+      });
+
+      return desvinculado;
     });
   }
 }

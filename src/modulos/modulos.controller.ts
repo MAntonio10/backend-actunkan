@@ -8,6 +8,7 @@ import {
   Delete,
   ParseIntPipe,
   Query,
+  Request,
 } from '@nestjs/common';
 import { ModulosService } from './modulos.service';
 import { CreateModuloDto } from './dto/create-modulo.dto';
@@ -18,36 +19,51 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 export class ModulosController {
   constructor(private readonly modulosService: ModulosService) {}
 
+  private getEjecutor(req: any) {
+    if (!req.user) return undefined;
+    return {
+      id: req.user.sub ?? req.user.id,
+      email: req.user.email,
+    };
+  }
+
   @Post()
-  @RequirePermission('modulos', 'crear')
-  create(@Body() createModuloDto: CreateModuloDto) {
-    return this.modulosService.create(createModuloDto);
+  @RequirePermission('Modulos', 'Crear')
+  create(@Body() createModuloDto: CreateModuloDto, @Request() req: any) {
+    return this.modulosService.create(createModuloDto, this.getEjecutor(req));
   }
 
   @Get()
-  @RequirePermission('modulos', 'ver')
+  @RequirePermission('Modulos', 'Ver')
   findAll(@Query('incluirAnulados') incluirAnulados?: string) {
     return this.modulosService.findAll(incluirAnulados === 'true');
   }
 
   @Get(':id')
-  @RequirePermission('modulos', 'ver')
+  @RequirePermission('Modulos', 'Ver')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.modulosService.findOne(id);
   }
 
   @Patch(':id')
-  @RequirePermission('modulos', 'editar')
+  @RequirePermission('Modulos', 'Editar')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateModuloDto: UpdateModuloDto,
+    @Request() req: any,
   ) {
-    return this.modulosService.update(id, updateModuloDto);
+    return this.modulosService.update(id, updateModuloDto, this.getEjecutor(req));
+  }
+
+  @Patch(':id/activar')
+  @RequirePermission('Modulos', 'Editar')
+  activar(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
+    return this.modulosService.activar(id, this.getEjecutor(req));
   }
 
   @Delete(':id')
-  @RequirePermission('modulos', 'anular')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.modulosService.remove(id);
+  @RequirePermission('Modulos', 'Anular')
+  remove(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
+    return this.modulosService.remove(id, this.getEjecutor(req));
   }
 }

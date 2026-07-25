@@ -10,6 +10,7 @@ import { ModulosModule } from './modulos/modulos.module';
 import { AccionesModule } from './acciones/acciones.module';
 import { ModuloAccionesModule } from './modulo-acciones/modulo-acciones.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
+import { BitacoraModule } from './bitacora/bitacora.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
 
@@ -23,6 +24,7 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
     AccionesModule,
     ModuloAccionesModule,
     UsuariosModule,
+    BitacoraModule,
   ],
   controllers: [AppController],
   providers: [

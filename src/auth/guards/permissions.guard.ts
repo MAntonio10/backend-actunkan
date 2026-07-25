@@ -48,6 +48,18 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
+    // 1. Verificar si el módulo existe y si se encuentra anulado/deshabilitado
+    const modulo = await this.prisma.modulo.findUnique({
+      where: { nombre: requiredPermission.modulo },
+    });
+
+    if (modulo && modulo.anulado) {
+      throw new ForbiddenException(
+        `El módulo '${modulo.nombre}' no se encuentra activo en el sistema.`,
+      );
+    }
+
+    // 2. Verificar si el usuario tiene asignado el permiso para el módulo
     const permisoAsignado = await this.prisma.permisos.findFirst({
       where: {
         idUsuario: usuario.id,

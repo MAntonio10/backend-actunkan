@@ -1,14 +1,20 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { BitacoraService } from '../bitacora/bitacora.service';
 import { CreatePuestoDto } from './dto/create-puesto.dto';
 import { UpdatePuestoDto } from './dto/update-puesto.dto';
 import { getFechaUTC6 } from '../common/utils/date.util';
+
+export interface EjecutorInfo {
+  id: number;
+  email?: string;
+}
 
 @Injectable()
 export class PuestosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createPuestoDto: CreatePuestoDto) {
+  async create(createPuestoDto: CreatePuestoDto, ejecutor?: EjecutorInfo) {
     return this.prisma.$transaction(async (tx) => {
       const puestoExistente = await tx.puestos.findUnique({
         where: { nombre: createPuestoDto.nombre },
@@ -21,7 +27,7 @@ export class PuestosService {
       }
 
       const ahora = getFechaUTC6();
-      return tx.puestos.create({
+      const puesto = await tx.puestos.create({
         data: {
           nombre: createPuestoDto.nombre,
           descripcion: createPuestoDto.descripcion,
@@ -29,6 +35,22 @@ export class PuestosService {
           fechaActualizacion: ahora,
         },
       });
+
+      let nombreEjecutor = ejecutor?.email;
+      if (ejecutor?.id) {
+        const uEj = await tx.usuario.findUnique({ where: { id: ejecutor.id } });
+        if (uEj) nombreEjecutor = uEj.nombre;
+      }
+
+      await BitacoraService.registrarEnTransaccion(tx, {
+        idUsuario: ejecutor?.id,
+        usuarioNombre: nombreEjecutor,
+        accion: 'CREAR_PUESTO',
+        modulo: 'Puestos',
+        descripcion: `Se creó el nuevo puesto '${puesto.nombre}'.`,
+      });
+
+      return puesto;
     });
   }
 
@@ -56,7 +78,7 @@ export class PuestosService {
     return puesto;
   }
 
-  async update(id: number, updatePuestoDto: UpdatePuestoDto) {
+  async update(id: number, updatePuestoDto: UpdatePuestoDto, ejecutor?: EjecutorInfo) {
     return this.prisma.$transaction(async (tx) => {
       const puesto = await tx.puestos.findUnique({ where: { id } });
       if (!puesto) {
@@ -75,30 +97,99 @@ export class PuestosService {
         }
       }
 
-      return tx.puestos.update({
+      const puestoActualizado = await tx.puestos.update({
         where: { id },
         data: {
           ...updatePuestoDto,
           fechaActualizacion: getFechaUTC6(),
         },
       });
+
+      let nombreEjecutor = ejecutor?.email;
+      if (ejecutor?.id) {
+        const uEj = await tx.usuario.findUnique({ where: { id: ejecutor.id } });
+        if (uEj) nombreEjecutor = uEj.nombre;
+      }
+
+      await BitacoraService.registrarEnTransaccion(tx, {
+        idUsuario: ejecutor?.id,
+        usuarioNombre: nombreEjecutor,
+        accion: 'EDITAR_PUESTO',
+        modulo: 'Puestos',
+        descripcion: `Se actualizaron los datos del puesto '${puestoActualizado.nombre}' (ID: ${id}).`,
+      });
+
+      return puestoActualizado;
     });
   }
 
-  async remove(id: number) {
+  async remove(id: number, ejecutor?: EjecutorInfo) {
     return this.prisma.$transaction(async (tx) => {
       const puesto = await tx.puestos.findUnique({ where: { id } });
       if (!puesto) {
         throw new NotFoundException(`No se encontró el puesto solicitado con el ID ${id}.`);
       }
 
-      return tx.puestos.update({
+      const puestoAnulado = await tx.puestos.update({
         where: { id },
         data: {
           anulado: true,
           fechaActualizacion: getFechaUTC6(),
         },
       });
+
+      let nombreEjecutor = ejecutor?.email;
+      if (ejecutor?.id) {
+        const uEj = await tx.usuario.findUnique({ where: { id: ejecutor.id } });
+        if (uEj) nombreEjecutor = uEj.nombre;
+      }
+
+      await BitacoraService.registrarEnTransaccion(tx, {
+        idUsuario: ejecutor?.id,
+        usuarioNombre: nombreEjecutor,
+        accion: 'ANULAR_PUESTO',
+        modulo: 'Puestos',
+        descripcion: `Se anuló/deshabilitó el puesto '${puestoAnulado.nombre}' (ID: ${id}).`,
+      });
+
+      return puestoAnulado;
+    });
+  }
+
+  async activar(id: number, ejecutor?: EjecutorInfo) {
+    return this.prisma.$transaction(async (tx) => {
+      const puesto = await tx.puestos.findUnique({ where: { id } });
+      if (!puesto) {
+        throw new NotFoundException(`No se encontró el puesto solicitado con el ID ${id}.`);
+      }
+
+      if (!puesto.anulado) {
+        throw new BadRequestException(`El puesto '${puesto.nombre}' ya se encuentra activo.`);
+      }
+
+      const puestoActivado = await tx.puestos.update({
+        where: { id },
+        data: {
+          anulado: false,
+          fechaActualizacion: getFechaUTC6(),
+        },
+      });
+
+      let nombreEjecutor = ejecutor?.email;
+      if (ejecutor?.id) {
+        const uEj = await tx.usuario.findUnique({ where: { id: ejecutor.id } });
+        if (uEj) nombreEjecutor = uEj.nombre;
+      }
+
+      await BitacoraService.registrarEnTransaccion(tx, {
+        idUsuario: ejecutor?.id,
+        usuarioNombre: nombreEjecutor,
+        accion: 'ACTIVAR_PUESTO',
+        modulo: 'Puestos',
+        descripcion: `Se reactivó el puesto '${puestoActivado.nombre}' (ID: ${id}).`,
+      });
+
+      return puestoActivado;
     });
   }
 }

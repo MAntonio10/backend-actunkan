@@ -4,10 +4,14 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { UsuariosModule } from '../usuarios/usuarios.module';
+import { MailModule } from '../mail/mail.module';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
   imports: [
     UsuariosModule,
+    MailModule,
+    PrismaModule,
     ConfigModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
