@@ -74,7 +74,7 @@ export class AuthService {
       usuarioNombre: usuario.nombre,
       accion: 'INICIO_SESION',
       modulo: 'Auth',
-      descripcion: `Inicio de sesión exitoso para el usuario '${usuario.nombre}' (${usuario.correo}).`,
+      descripcion: `Inicio de sesion exitoso para el usuario '${usuario.nombre}' (${usuario.correo}).`,
     });
 
     return {

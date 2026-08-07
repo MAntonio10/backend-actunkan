@@ -42,7 +42,7 @@ export class AccionesService {
         usuarioNombre: nombreEjecutor,
         accion: 'CREAR_ACCION',
         modulo: 'Acciones',
-        descripcion: `Se creó la nueva acción '${accion.nombre}'.`,
+        descripcion: `Se creo la nueva accion '${accion.nombre}'.`,
       });
 
       return accion;

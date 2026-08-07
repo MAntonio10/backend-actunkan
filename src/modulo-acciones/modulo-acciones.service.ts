@@ -71,7 +71,7 @@ export class ModuloAccionesService {
         usuarioNombre: nombreEjecutor,
         accion: 'VINCULAR_MODULO_ACCION',
         modulo: 'Modulos',
-        descripcion: `Se vinculó la acción '${accion.nombre}' al módulo '${modulo.nombre}'.`,
+        descripcion: `Se vinculo la accion '${accion.nombre}' al modulo '${modulo.nombre}'.`,
       });
 
       return nuevaRelacion;
@@ -158,7 +158,7 @@ export class ModuloAccionesService {
         usuarioNombre: nombreEjecutor,
         accion: 'DESVINCULAR_MODULO_ACCION',
         modulo: 'Modulos',
-        descripcion: `Se desvinculó la acción '${moduloAccion.accion?.nombre}' del módulo '${moduloAccion.modulo?.nombre}'.`,
+        descripcion: `Se desvinculo la accion '${moduloAccion.accion?.nombre}' del modulo '${moduloAccion.modulo?.nombre}'.`,
       });
 
       return desvinculado;

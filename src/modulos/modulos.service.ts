@@ -46,7 +46,7 @@ export class ModulosService {
         usuarioNombre: nombreEjecutor,
         accion: 'CREAR_MODULO',
         modulo: 'Modulos',
-        descripcion: `Se creó el nuevo módulo de sistema '${modulo.nombre}'.`,
+        descripcion: `Se creo el nuevo modulo de sistema '${modulo.nombre}'.`,
       });
 
       return modulo;

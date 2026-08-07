@@ -47,7 +47,7 @@ export class PuestosService {
         usuarioNombre: nombreEjecutor,
         accion: 'CREAR_PUESTO',
         modulo: 'Puestos',
-        descripcion: `Se creó el nuevo puesto '${puesto.nombre}'.`,
+        descripcion: `Se creo el nuevo puesto '${puesto.nombre}'.`,
       });
 
       return puesto;

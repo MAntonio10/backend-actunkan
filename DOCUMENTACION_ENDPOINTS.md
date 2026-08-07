@@ -838,7 +838,7 @@ Obtiene los registros de auditoría ordenados descendentemente por fecha en huso
     "usuarioNombre": "Administrador General",
     "accion": "CREAR_USUARIO",
     "modulo": "Usuarios",
-    "descripcion": "Se creó el nuevo usuario 'Carlos Mendoza' (carlos.mendoza@aktunkan.com) asignado al puesto 'Taquillero'.",
+    "descripcion": "Se creo el nuevo usuario 'Carlos Mendoza' (carlos.mendoza@aktunkan.com) asignado al puesto 'Taquillero'.",
     "fecha": "2026-07-25T03:45:00.000Z",
     "usuario": {
       "id": 1,
@@ -884,7 +884,7 @@ Obtiene los registros de auditoría ordenados descendentemente por fecha en huso
   "usuarioNombre": "Administrador General",
   "accion": "CREAR_USUARIO",
   "modulo": "Usuarios",
-  "descripcion": "Se creó el nuevo usuario 'Carlos Mendoza' (carlos.mendoza@aktunkan.com) asignado al puesto 'Taquillero'.",
+  "descripcion": "Se creo el nuevo usuario 'Carlos Mendoza' (carlos.mendoza@aktunkan.com) asignado al puesto 'Taquillero'.",
   "fecha": "2026-07-25T03:45:00.000Z",
   "usuario": {
     "id": 1,

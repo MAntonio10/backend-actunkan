@@ -12,12 +12,16 @@ export class MailService {
     const user = process.env.SMTP_USER || '';
     const pass = process.env.SMTP_PASS || '';
     const secure = process.env.SMTP_SECURE === 'true';
+    const rejectUnauthorized = process.env.SMTP_REJECT_UNAUTHORIZED === 'true';
 
     this.transporter = nodemailer.createTransport({
       host,
       port,
       secure,
       auth: user && pass ? { user, pass } : undefined,
+      tls: {
+        rejectUnauthorized,
+      },
     });
   }
 

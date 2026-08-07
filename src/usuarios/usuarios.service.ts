@@ -81,7 +81,7 @@ export class UsuariosService {
         usuarioNombre: nombreEjecutor,
         accion: 'CREAR_USUARIO',
         modulo: 'Usuarios',
-        descripcion: `Se creó el nuevo usuario '${usuario.nombre}' (${usuario.correo}) asignado al puesto '${puesto.nombre}'.`,
+        descripcion: `Se creo el nuevo usuario '${usuario.nombre}' (${usuario.correo}) asignado al puesto '${puesto.nombre}'.`,
       });
 
       const { contrasena, ...usuarioSinContrasena } = usuario;
