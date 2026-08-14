@@ -27,25 +27,25 @@ export class AccionesController {
   }
 
   @Post()
-  @RequirePermission('Acciones', 'Crear')
+  @RequirePermission('Usuarios', 'Crear')
   create(@Body() createAccionDto: CreateAccionDto, @Request() req: any) {
     return this.accionesService.create(createAccionDto, this.getEjecutor(req));
   }
 
   @Get()
-  @RequirePermission('Acciones', 'Ver')
+  @RequirePermission('Usuarios', 'Ver')
   findAll() {
     return this.accionesService.findAll();
   }
 
   @Get(':id')
-  @RequirePermission('Acciones', 'Ver')
+  @RequirePermission('Usuarios', 'Ver')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.accionesService.findOne(id);
   }
 
   @Patch(':id')
-  @RequirePermission('Acciones', 'Editar')
+  @RequirePermission('Usuarios', 'Editar')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateAccionDto: UpdateAccionDto,
@@ -55,7 +55,7 @@ export class AccionesController {
   }
 
   @Delete(':id')
-  @RequirePermission('Acciones', 'Anular')
+  @RequirePermission('Usuarios', 'Anular')
   remove(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
     return this.accionesService.remove(id, this.getEjecutor(req));
   }

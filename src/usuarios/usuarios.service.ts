@@ -364,6 +364,7 @@ export class UsuariosService {
         where: {
           id: { in: dto.idsModuloAccion },
         },
+        include: { modulo: true },
       });
 
       if (moduloAcciones.length !== dto.idsModuloAccion.length) {
@@ -373,6 +374,25 @@ export class UsuariosService {
         );
         throw new NotFoundException(
           `No se encontraron los siguientes IDs de MóduloAcción solicitados: [${faltantes.join(', ')}].`,
+        );
+      }
+
+      // Se rechazan dos casos que producirían permisos inservibles:
+      //  - módulos de infraestructura ('Modulos', 'Acciones'), que sostienen el menú
+      //    y la pantalla de permisos pero no se conceden a nadie;
+      //  - módulos anulados, que el guard nunca honraría (exige `anulado: false`).
+      const invalidos = moduloAcciones.filter(
+        (ma) => !ma.modulo.esAsignable || ma.modulo.anulado,
+      );
+
+      if (invalidos.length > 0) {
+        const nombres = [...new Set(invalidos.map((ma) => ma.modulo.nombre))];
+        const ids = invalidos.map((ma) => ma.id);
+        throw new BadRequestException(
+          `No se pueden asignar permisos sobre los módulos [${nombres.join(', ')}]: ` +
+            'son módulos de infraestructura o están anulados. ' +
+            `IDs de módulo-acción rechazados: [${ids.join(', ')}]. ` +
+            'Use GET /modulo-acciones (que ya devuelve solo los asignables) para construir la lista.',
         );
       }
 

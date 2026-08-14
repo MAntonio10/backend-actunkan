@@ -13,6 +13,29 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Sesión de refresco. El token de acceso dura minutos; este es el que permite
+/// renovarlo y es revocable de forma individual: cerrar una sesión no afecta
+/// a las demás del mismo usuario ni a las de otros usuarios.
+///
+/// Se guarda solo el hash del token: si la base de datos se filtrara, los
+/// valores almacenados no sirven para autenticarse.
+model SesionRefresh {
+  id               Int       @id @default(autoincrement())
+  idUsuario        Int
+  tokenHash        String    @unique @db.NVarChar(128)
+  fechaCreacion    DateTime  @db.DateTime2
+  fechaExpiracion  DateTime  @db.DateTime2
+  fechaUltimoUso   DateTime? @db.DateTime2
+  revocada         Boolean   @default(false)
+  motivoRevocacion String?   @db.NVarChar(120)
+  ip               String?   @db.NVarChar(64)
+  dispositivo      String?   @db.NVarChar(255)
+
+  usuario Usuario @relation(fields: [idUsuario], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([idUsuario, revocada])
+}
+
 model Usuario {
   id                   Int                 @id @default(autoincrement())
   idPuesto             Int
@@ -26,6 +49,10 @@ model Usuario {
   codigoRestablecimiento String?           @db.NVarChar(10)
   expiracionCodigo       DateTime?         @db.DateTime2
   aperturasCaja        AperturaCaja[]
+  gastos               Gastos[]
+  tickets              Ticket[]
+  gruposEmision        GrupoEmision[]
+  sesiones             SesionRefresh[]
   permiso              Permisos[]
   puesto               Puestos             @relation(fields: [idPuesto], references: [id])
   actividadesCreadas   ActividadesParque[] @relation("ActividadCreador")
@@ -39,6 +66,17 @@ model Modulo {
   anulado            Boolean   @default(false)
   fechaCreacion      DateTime  @default(now()) @db.DateTime2
   fechaActualizacion DateTime? @updatedAt @db.DateTime2
+
+  /// Módulos de infraestructura ('Modulos', 'Acciones'): existen para que el
+  /// frontend arme el menú y la pantalla de permisos, pero no se conceden a
+  /// ningún usuario. No aparecen en la asignación y la API rechaza asignarlos.
+  esAsignable Boolean @default(true)
+
+  /// Un módulo general puede agrupar sub-módulos con permisos propios
+  /// (ej. 'Gastos' es sub-módulo de 'Cajas'). Null = módulo general.
+  idModuloPadre Int?
+  moduloPadre   Modulo?  @relation("SubModulos", fields: [idModuloPadre], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subModulos    Modulo[] @relation("SubModulos")
 
   // Relación con las acciones que este módulo permite tener
   moduloAcciones ModuloAccion[]
@@ -89,21 +127,59 @@ model Puestos {
   usuarios           Usuario[]
 }
 
+/// Una venta puede emitir 1 o 2 tickets (visitante y, si el guía no tiene carnet,
+/// un ticket independiente para el guía). GrupoEmision los vincula.
+model GrupoEmision {
+  id             Int          @id @default(autoincrement())
+  idUsuario      Int
+  idAperturaCaja Int
+  fechaCreacion  DateTime     @db.DateTime2
+  usuario        Usuario      @relation(fields: [idUsuario], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  aperturaCaja   AperturaCaja @relation(fields: [idAperturaCaja], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tickets        Ticket[]
+}
+
 model Ticket {
   id                 Int           @id @default(autoincrement())
+  idGrupoEmision     Int
   idTipoRecorrido    Int
   idAperturaCaja     Int
   idUsuario          Int
+  idAtraccion        Int
+  idOrigen           Int
+  idPais             Int?
+  idGuia             Int?
+  /// Folio correlativo. Siempre texto: puede llevar letras (serie configurable).
+  numeroTicket       String        @unique @db.NVarChar(30)
+  /// 'VISITANTE' | 'GUIA'
+  tipoTicket         String        @db.NVarChar(20)
   nombre             String        @db.NVarChar(255)
-  observaciones      String?       @db.NVarChar(255)
+  cantidadPersonas   Int
+  montoTotal         Decimal       @db.Decimal(18, 4)
+  observaciones      String?       @db.NVarChar(Max)
   fechaCreacion      DateTime      @db.DateTime2
   fechaActualizacion DateTime?     @db.DateTime2
   anulado            Boolean       @default(false)
-  Qr                 String
-  tiporecorrido      TipoRecorrido @relation(fields: [idTipoRecorrido], references: [id])
+  /// Firma HMAC del folio; es lo que valida el QR en taquilla.
+  qrFirma            String        @db.NVarChar(128)
+  /// Control de acceso: se sella al primer escaneo válido.
+  fechaUso           DateTime?     @db.DateTime2
+  idUsuarioUso       Int?
+
+  grupoEmision  GrupoEmision    @relation(fields: [idGrupoEmision], references: [id])
+  tipoRecorrido TipoRecorrido   @relation(fields: [idTipoRecorrido], references: [id])
+  aperturaCaja  AperturaCaja    @relation(fields: [idAperturaCaja], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuario       Usuario         @relation(fields: [idUsuario], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  atraccion     Atraccion       @relation(fields: [idAtraccion], references: [id])
+  origen        OrigenVisitante @relation(fields: [idOrigen], references: [id])
+  pais          Pais?           @relation(fields: [idPais], references: [id])
+  guia          Guia?           @relation(fields: [idGuia], references: [id])
 
   visitantePorTickets VisitantePorTicket[]
   ticketPagos         TicketPago[]
+
+  @@index([fechaCreacion])
+  @@index([idAperturaCaja])
 }
 
 model VisitantePorTicket {
@@ -111,31 +187,128 @@ model VisitantePorTicket {
   idTicket        Int
   idTipoVisitante Int
   cantidad        Int
+  /// Snapshot de la tarifa aplicada: cambiar precios no debe alterar ventas pasadas.
+  precioUnitario  Decimal       @db.Decimal(18, 4)
+  subtotal        Decimal       @db.Decimal(18, 4)
   tickets         Ticket        @relation(fields: [idTicket], references: [id])
   tipoVisitantes  TipoVisitante @relation(fields: [idTipoVisitante], references: [id])
+
+  @@unique([idTicket, idTipoVisitante])
 }
 
 model TipoRecorrido {
   id                 Int       @id @default(autoincrement())
+  /// Clave estable para reglas de negocio: 'corto' | 'largo'.
+  codigo             String    @unique @db.NVarChar(50)
   nombre             String
   fechaCreacion      DateTime  @db.DateTime2
   fechaActualizacion DateTime? @db.DateTime2
-  anulado            Boolean
+  anulado            Boolean   @default(false)
   tickets            Ticket[]
 }
 
 model TipoVisitante {
   id                  Int                  @id @default(autoincrement())
+  /// 'adulto' | 'nino' | 'nino_menor' | 'centro_educativo'.
+  codigo              String               @unique @db.NVarChar(50)
   nombre              String               @db.NVarChar(255)
   fechaCreacion       DateTime             @db.DateTime2
   fechaActualizacion  DateTime?            @db.DateTime2
   anulado             Boolean              @default(false)
   visitantePorTickets VisitantePorTicket[]
+  tarifas             Tarifa[]
+}
+
+model Atraccion {
+  id                 Int       @id @default(autoincrement())
+  /// 'cuevas' | 'mariposario'.
+  codigo             String    @unique @db.NVarChar(50)
+  nombre             String    @db.NVarChar(255)
+  fechaCreacion      DateTime  @db.DateTime2
+  fechaActualizacion DateTime? @db.DateTime2
+  anulado            Boolean   @default(false)
+  tickets            Ticket[]
+  tarifas            Tarifa[]
+}
+
+model OrigenVisitante {
+  id                 Int       @id @default(autoincrement())
+  /// 'nacional' | 'extranjero'. Extranjero exige país y excluye centro_educativo.
+  codigo             String    @unique @db.NVarChar(50)
+  nombre             String    @db.NVarChar(255)
+  fechaCreacion      DateTime  @db.DateTime2
+  fechaActualizacion DateTime? @db.DateTime2
+  anulado            Boolean   @default(false)
+  tickets            Ticket[]
+  tarifas            Tarifa[]
+}
+
+model Pais {
+  id                 Int       @id @default(autoincrement())
+  nombre             String    @unique @db.NVarChar(150)
+  codigoIso          String?   @db.NVarChar(3)
+  fechaCreacion      DateTime  @db.DateTime2
+  fechaActualizacion DateTime? @db.DateTime2
+  anulado            Boolean   @default(false)
+  tickets            Ticket[]
+}
+
+model Guia {
+  id                 Int       @id @default(autoincrement())
+  nombre             String    @db.NVarChar(255)
+  numeroCarnet       String?   @db.NVarChar(50)
+  tieneCarnet        Boolean   @default(false)
+  fechaCreacion      DateTime  @db.DateTime2
+  fechaActualizacion DateTime? @db.DateTime2
+  anulado            Boolean   @default(false)
+  tickets            Ticket[]
+}
+
+/// Tarifa por atracción + origen + categoría, con vigencia.
+/// La vigente es la que tiene vigenteHasta = null; editar cierra la anterior y crea otra.
+model Tarifa {
+  id                 Int             @id @default(autoincrement())
+  idAtraccion        Int
+  idOrigen           Int
+  idTipoVisitante    Int
+  precio             Decimal         @db.Decimal(18, 4)
+  vigenteDesde       DateTime        @db.DateTime2
+  vigenteHasta       DateTime?       @db.DateTime2
+  fechaCreacion      DateTime        @db.DateTime2
+  fechaActualizacion DateTime?       @db.DateTime2
+  anulado            Boolean         @default(false)
+  atraccion          Atraccion       @relation(fields: [idAtraccion], references: [id])
+  origen             OrigenVisitante @relation(fields: [idOrigen], references: [id])
+  tipoVisitante      TipoVisitante   @relation(fields: [idTipoVisitante], references: [id])
+
+  @@index([idAtraccion, idOrigen, idTipoVisitante, vigenteHasta])
+}
+
+/// Precio del ticket independiente del guía sin carnet. No depende de la atracción.
+model TarifaGuia {
+  id                 Int       @id @default(autoincrement())
+  precio             Decimal   @db.Decimal(18, 4)
+  vigenteDesde       DateTime  @db.DateTime2
+  vigenteHasta       DateTime? @db.DateTime2
+  fechaCreacion      DateTime  @db.DateTime2
+  fechaActualizacion DateTime? @db.DateTime2
+}
+
+/// Contador atómico del folio. Solo el consecutivo es numérico:
+/// el folio que se persiste (Ticket.numeroTicket) es la cadena ya compuesta.
+model CorrelativoTicket {
+  id           Int    @id @default(autoincrement())
+  serie        String @db.NVarChar(10)
+  anio         Int
+  ultimoNumero Int    @default(0)
+
+  @@unique([serie, anio])
 }
 
 model OpcionPago {
   id                 Int          @id @default(autoincrement())
   nombre             String       @db.NVarChar(100)
+  esEfectivo         Boolean      @default(false)
   anulado            Boolean      @default(false)
   fechaCreacion      DateTime     @db.DateTime2
   fechaActualizacion DateTime?    @db.DateTime2
@@ -165,10 +338,12 @@ model AperturaCaja {
   montoInicial       Decimal      @db.Decimal(18, 4)
   observaciones      String?      @db.NVarChar(Max)
   anulado            Boolean      @default(false)
-  usuario            Usuario      @relation(fields: [idUsuario], references: [id])
+  usuario            Usuario        @relation(fields: [idUsuario], references: [id])
   cierresCaja        CierreCaja[]
   gastos             Gastos[]
-  estado             EstadoCaja   @relation(fields: [idEstado], references: [id])
+  tickets            Ticket[]
+  gruposEmision      GrupoEmision[]
+  estado             EstadoCaja     @relation(fields: [idEstado], references: [id])
 }
 
 model EstadoCaja {
@@ -181,6 +356,7 @@ model Gastos {
   id                 Int           @id @default(autoincrement())
   idTipoGasto        Int
   idAperturaCaja     Int?
+  idUsuario          Int?
   descripcion        String        @db.NVarChar(255)
   monto              Decimal       @db.Decimal(18, 4)
   fechaCreacion      DateTime      @db.DateTime2
@@ -188,6 +364,7 @@ model Gastos {
   anulado            Boolean       @default(false)
   aperturaCaja       AperturaCaja? @relation(fields: [idAperturaCaja], references: [id])
   tipoGasto          TipoGasto     @relation(fields: [idTipoGasto], references: [id])
+  usuario            Usuario?      @relation(fields: [idUsuario], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model TipoGasto {
@@ -198,13 +375,15 @@ model TipoGasto {
 }
 
 model CierreCaja {
-  id            Int          @id @default(autoincrement())
-  idApertura    Int
-  fechaCierre   DateTime     @db.DateTime2
-  montoFinal    Decimal      @db.Decimal(18, 4)
-  observaciones String?      @db.NVarChar(Max)
-  anulado       Boolean      @default(false)
-  aperturaCaja  AperturaCaja @relation(fields: [idApertura], references: [id])
+  id             Int          @id @default(autoincrement())
+  idApertura     Int
+  fechaCierre    DateTime     @db.DateTime2
+  montoFinal     Decimal      @db.Decimal(18, 4)
+  montoEsperado  Decimal?     @db.Decimal(18, 4)
+  diferencia     Decimal?     @db.Decimal(18, 4)
+  observaciones  String?      @db.NVarChar(Max)
+  anulado        Boolean      @default(false)
+  aperturaCaja   AperturaCaja @relation(fields: [idApertura], references: [id])
 }
 
 model ActividadesParque {

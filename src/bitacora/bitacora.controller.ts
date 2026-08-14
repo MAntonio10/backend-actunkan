@@ -7,13 +7,13 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 export class BitacoraController {
   constructor(private readonly bitacoraService: BitacoraService) {}
 
-  @RequirePermission('Auditoria', 'Ver')
+  @RequirePermission('Bitacora', 'Ver')
   @Get()
   findAll(@Query() queryDto: QueryBitacoraDto) {
     return this.bitacoraService.findAll(queryDto);
   }
 
-  @RequirePermission('Auditoria', 'Ver')
+  @RequirePermission('Bitacora', 'Ver')
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.bitacoraService.findOne(id);

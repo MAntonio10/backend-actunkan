@@ -53,9 +53,12 @@ export class ModulosService {
     });
   }
 
-  async findAll(incluirAnulados = false) {
+  async findAll(incluirAnulados = false, soloAsignables = false) {
     return this.prisma.modulo.findMany({
-      where: incluirAnulados ? {} : { anulado: false },
+      where: {
+        ...(incluirAnulados ? {} : { anulado: false }),
+        ...(soloAsignables ? { esAsignable: true } : {}),
+      },
       include: {
         moduloAcciones: {
           include: {
@@ -65,6 +68,53 @@ export class ModulosService {
       },
       orderBy: { nombre: 'asc' },
     });
+  }
+
+  /**
+   * Módulos a los que el usuario autenticado tiene acceso, con las acciones que
+   * efectivamente se le concedieron. Alimenta el menú del frontend.
+   *
+   * A propósito no exige un permiso: si dependiera de uno, ese permiso tendría que
+   * asignarse a todo el mundo y bastaría quitarlo por error para dejar a un usuario
+   * sin menú. Cada quien puede leer su propio acceso, nada más.
+   */
+  async findModulosDelUsuario(idUsuario: number) {
+    const permisos = await this.prisma.permisos.findMany({
+      where: {
+        idUsuario,
+        moduloAccion: { modulo: { anulado: false } },
+      },
+      include: {
+        moduloAccion: {
+          include: {
+            modulo: { include: { moduloPadre: { select: { id: true, nombre: true } } } },
+            accion: true,
+          },
+        },
+      },
+    });
+
+    // Agrupa por módulo para que el menú reciba un elemento por módulo, no por permiso.
+    const porModulo = new Map<number, any>();
+
+    for (const permiso of permisos) {
+      const { modulo, accion } = permiso.moduloAccion;
+
+      if (!porModulo.has(modulo.id)) {
+        porModulo.set(modulo.id, {
+          id: modulo.id,
+          nombre: modulo.nombre,
+          esAsignable: modulo.esAsignable,
+          idModuloPadre: modulo.idModuloPadre,
+          moduloPadre: modulo.moduloPadre,
+          acciones: [] as string[],
+        });
+      }
+
+      porModulo.get(modulo.id).acciones.push(accion.nombre);
+    }
+
+    return Array.from(porModulo.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
   }
 
   async findOne(id: number) {

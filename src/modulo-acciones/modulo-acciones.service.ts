@@ -78,8 +78,17 @@ export class ModuloAccionesService {
     });
   }
 
-  async findAll() {
+  /**
+   * Por defecto devuelve solo lo que realmente se puede conceder a un usuario:
+   * módulos activos y asignables.
+   *
+   * Antes devolvía todo, y una pantalla de "seleccionar todos los permisos" acababa
+   * enviando vínculos de módulos de infraestructura (`Modulos`, `Acciones`) o de
+   * módulos anulados, que el guard nunca honraría.
+   */
+  async findAll(incluirNoAsignables = false) {
     return this.prisma.moduloAccion.findMany({
+      where: incluirNoAsignables ? {} : { modulo: { esAsignable: true, anulado: false } },
       include: {
         modulo: true,
         accion: true,

@@ -16,6 +16,7 @@ import { SolicitarCodigoDto } from './dto/solicitar-codigo.dto';
 import { ValidarCodigoDto } from './dto/validar-codigo.dto';
 import { RestablecerContrasenaDto } from './dto/restablecer-contrasena.dto';
 import { getFechaUTC6 } from '../common/utils/date.util';
+import { ContextoSesion, SesionesService } from './sesiones.service';
 
 @Injectable()
 export class AuthService {
@@ -26,9 +27,26 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
+    private readonly sesionesService: SesionesService,
   ) {}
 
-  async login(loginDto: LoginDto) {
+  /**
+   * Vida del token de acceso. Corta a propósito: el JWT no es revocable, así que
+   * se compensa expirando pronto y renovándolo con el refresh token.
+   * El formato es el de `ms` (ej. '15m', '1h').
+   */
+  private get expiracionAcceso(): `${number}${'s' | 'm' | 'h' | 'd'}` {
+    return (process.env.JWT_ACCESS_EXPIRA || '30m') as `${number}${'s' | 'm' | 'h' | 'd'}`;
+  }
+
+  private async firmarAcceso(usuario: { id: number; correo: string; idPuesto: number }) {
+    return this.jwtService.signAsync(
+      { sub: usuario.id, email: usuario.correo, idPuesto: usuario.idPuesto },
+      { expiresIn: this.expiracionAcceso },
+    );
+  }
+
+  async login(loginDto: LoginDto, ctx: ContextoSesion = {}) {
     let usuario;
     try {
       usuario = await this.usuariosService.findByCorreo(loginDto.correo);
@@ -55,14 +73,15 @@ export class AuthService {
       );
     }
 
-    const payload = {
-      sub: usuario.id,
-      email: usuario.correo,
-      idPuesto: usuario.idPuesto,
-    };
+    const token = await this.firmarAcceso(usuario);
 
-    const expiresIn = loginDto.recordarme ? '365d' : '24h';
-    const token = await this.jwtService.signAsync(payload, { expiresIn });
+    // El refresh es lo que sostiene la sesión larga y, a diferencia del token de
+    // acceso, se puede revocar individualmente sin afectar a nadie más.
+    const { refreshToken, sesion } = await this.sesionesService.crear(
+      usuario.id,
+      loginDto.recordarme === true,
+      ctx,
+    );
 
     const { contrasena, ...usuarioSinContrasena } = usuario;
 
@@ -79,9 +98,77 @@ export class AuthService {
 
     return {
       access_token: token,
+      refresh_token: refreshToken,
       token_type: 'Bearer',
+      expires_in: this.expiracionAcceso,
+      refresh_expira: sesion.fechaExpiracion,
       usuario: usuarioSinContrasena,
     };
+  }
+
+  /**
+   * Renueva el token de acceso a partir del refresh, que se rota en cada uso.
+   * Es lo que permite tener sesiones de 30 días sin que un token robado sirva
+   * indefinidamente: basta revocar esa sesión.
+   */
+  async refrescar(refreshToken: string, ctx: ContextoSesion = {}) {
+    const { refreshToken: nuevoRefresh, sesion, usuario } = await this.sesionesService.rotar(
+      refreshToken,
+      ctx,
+    );
+
+    const accessToken = await this.firmarAcceso(usuario);
+
+    return {
+      access_token: accessToken,
+      refresh_token: nuevoRefresh,
+      token_type: 'Bearer',
+      expires_in: this.expiracionAcceso,
+      refresh_expira: sesion.fechaExpiracion,
+    };
+  }
+
+  /** Cierra la sesión indicada. Las demás sesiones del usuario siguen activas. */
+  async logout(refreshToken: string, ejecutor?: { id: number; nombre?: string }) {
+    const resultado = await this.sesionesService.revocarUna(refreshToken);
+
+    if (resultado.revocadas > 0) {
+      await BitacoraService.registrarEnTransaccion(this.prisma, {
+        idUsuario: ejecutor?.id ?? resultado.idUsuario,
+        usuarioNombre: ejecutor?.nombre,
+        accion: 'CIERRE_SESION',
+        modulo: 'Auth',
+        descripcion: 'Cierre de sesión: se revocó el refresh token de esa sesión.',
+      });
+    }
+
+    return { mensaje: 'Sesión cerrada.', sesionesCerradas: resultado.revocadas };
+  }
+
+  /** Cierra todas las sesiones del usuario autenticado (no afecta a otros usuarios). */
+  async logoutTodas(idUsuario: number, nombre?: string) {
+    const resultado = await this.sesionesService.revocarTodas(
+      idUsuario,
+      'Cierre de todas las sesiones solicitado por el usuario',
+    );
+
+    await BitacoraService.registrarEnTransaccion(this.prisma, {
+      idUsuario,
+      usuarioNombre: nombre,
+      accion: 'CIERRE_SESION_TOTAL',
+      modulo: 'Auth',
+      descripcion: `Se cerraron ${resultado.revocadas} sesión(es) del usuario.`,
+    });
+
+    return { mensaje: 'Se cerraron todas las sesiones.', sesionesCerradas: resultado.revocadas };
+  }
+
+  listarSesiones(idUsuario: number) {
+    return this.sesionesService.listarActivas(idUsuario);
+  }
+
+  cerrarSesionPorId(idUsuario: number, idSesion: number) {
+    return this.sesionesService.revocarPorId(idUsuario, idSesion);
   }
 
   async getProfile(usuarioId: number) {
@@ -229,7 +316,18 @@ export class AuthService {
       });
     });
 
-    this.logger.log(`Contraseña restablecida exitosamente para el usuario: ${usuario.correo}`);
+    // Cambiar la contraseña debe expulsar cualquier sesión previa: si alguien más
+    // tenía acceso, el restablecimiento no sirve de nada si sus tokens siguen vivos.
+    // Solo afecta a este usuario.
+    const cerradas = await this.sesionesService.revocarTodas(
+      usuario.id,
+      'Restablecimiento de contraseña',
+    );
+
+    this.logger.log(
+      `Contraseña restablecida exitosamente para el usuario: ${usuario.correo}. ` +
+        `Sesiones cerradas: ${cerradas.revocadas}.`,
+    );
 
     return {
       mensaje: 'La contraseña ha sido restablecida exitosamente. Ya puede iniciar sesión con su nueva contraseña.',

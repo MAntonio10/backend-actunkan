@@ -6,6 +6,7 @@ import {
   Param,
   Delete,
   ParseIntPipe,
+  Query,
   Request,
 } from '@nestjs/common';
 import { ModuloAccionesService } from './modulo-acciones.service';
@@ -27,31 +28,36 @@ export class ModuloAccionesController {
   }
 
   @Post()
-  @RequirePermission('Modulos', 'Editar')
+  @RequirePermission('Usuarios', 'Editar')
   create(@Body() createModuloAccionDto: CreateModuloAccionDto, @Request() req: any) {
     return this.moduloAccionesService.create(createModuloAccionDto, this.getEjecutor(req));
   }
 
+  /**
+   * Devuelve solo los vínculos asignables (módulos activos y no de infraestructura),
+   * que es lo que debe alimentar la pantalla de asignación de permisos.
+   * `?incluirNoAsignables=true` muestra todo, para administración o diagnóstico.
+   */
   @Get()
-  @RequirePermission('Modulos', 'Ver')
-  findAll() {
-    return this.moduloAccionesService.findAll();
+  @RequirePermission('Usuarios', 'Ver')
+  findAll(@Query('incluirNoAsignables') incluirNoAsignables?: string) {
+    return this.moduloAccionesService.findAll(incluirNoAsignables === 'true');
   }
 
   @Get('modulo/:idModulo')
-  @RequirePermission('Modulos', 'Ver')
+  @RequirePermission('Usuarios', 'Ver')
   findByModulo(@Param('idModulo', ParseIntPipe) idModulo: number) {
     return this.moduloAccionesService.findByModulo(idModulo);
   }
 
   @Get(':id')
-  @RequirePermission('Modulos', 'Ver')
+  @RequirePermission('Usuarios', 'Ver')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.moduloAccionesService.findOne(id);
   }
 
   @Delete(':id')
-  @RequirePermission('Modulos', 'Anular')
+  @RequirePermission('Usuarios', 'Anular')
   remove(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
     return this.moduloAccionesService.remove(id, this.getEjecutor(req));
   }
