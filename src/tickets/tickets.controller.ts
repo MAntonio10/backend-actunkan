@@ -10,8 +10,11 @@ import {
   Post,
   Query,
   Request,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { TicketsService } from './tickets.service';
+import { TicketPdfService } from './ticket-pdf.service';
 import { EmitirTicketDto } from './dto/emitir-ticket.dto';
 import { QueryTicketDto } from './dto/query-ticket.dto';
 import { ValidarTicketDto } from './dto/validar-ticket.dto';
@@ -20,7 +23,10 @@ import { obtenerEjecutor } from '../common/utils/ejecutor.util';
 
 @Controller('tickets')
 export class TicketsController {
-  constructor(private readonly ticketsService: TicketsService) {}
+  constructor(
+    private readonly ticketsService: TicketsService,
+    private readonly ticketPdfService: TicketPdfService,
+  ) {}
 
   /**
    * Datos de configuración que arman el formulario de emisión (atracciones, orígenes,
@@ -57,6 +63,24 @@ export class TicketsController {
   @RequirePermission('EmisionTickets','Ver')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.ticketsService.findOne(id);
+  }
+
+  /**
+   * Pase de acceso en PDF, listo para descargar e imprimir. La página va dimensionada
+   * al propio ticket (ancho de 80 mm), así sirve en impresora térmica y en una normal.
+   */
+  @Get(':id/pdf')
+  @RequirePermission('EmisionTickets', 'Ver')
+  async pdf(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
+    const ticket = await this.ticketsService.findOne(id);
+    const pdf = await this.ticketPdfService.generar(ticket);
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${ticket.numeroTicket}.pdf"`,
+      'Content-Length': pdf.length.toString(),
+    });
+    res.end(pdf);
   }
 
   @Delete(':id')

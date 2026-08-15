@@ -320,13 +320,22 @@ model TicketPago {
   idTicket           Int
   idOpcionPago       Int
   numeroComprobante  String?    @db.NVarChar(100)
+  /// ID del checkout en la pasarela (Recurrente), ej. `ch_eegw9j5zgqoae3ms`.
   idPagoPasarela     String?    @db.NVarChar(255)
+  /// Link de pago que se le comparte al cliente por correo o WhatsApp.
+  checkoutUrl        String?    @db.NVarChar(500)
+  /// 'PAGADO' | 'PENDIENTE' | 'CANCELADO'.
+  /// El efectivo nace PAGADO; la tarjeta queda PENDIENTE hasta que la pasarela confirme.
+  estadoPago         String     @default("PAGADO") @db.NVarChar(20)
+  fechaPago          DateTime?  @db.DateTime2
   monto              Decimal    @db.Decimal(18, 4)
   fechaCreacion      DateTime   @db.DateTime2
   fechaActualizacion DateTime?  @db.DateTime2
   anulado            Boolean    @default(false)
   tickets            Ticket     @relation(fields: [idTicket], references: [id])
   opcionPago         OpcionPago @relation(fields: [idOpcionPago], references: [id])
+
+  @@index([idPagoPasarela])
 }
 
 model AperturaCaja {

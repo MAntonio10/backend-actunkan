@@ -38,6 +38,8 @@ describe('CajasService', () => {
       aperturaCaja: { findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
       gastos: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
       ticketPago: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
+      // Decide si la respuesta revela el arqueo. Por defecto: supervisor.
+      permisos: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) },
     };
 
     jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
@@ -169,6 +171,47 @@ describe('CajasService', () => {
           }),
         }),
       );
+    });
+
+    // Si quien cuenta el efectivo viera el esperado, bastaría teclear esa cifra.
+    it('NO revela montoEsperado ni diferencia a quien no supervisa', async () => {
+      prisma.permisos.findFirst.mockResolvedValue(null); // sin Cajas.Editar
+      prepararCajaAbierta(500);
+      tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
+      tx.gastos.aggregate.mockResolvedValue({ _sum: { monto: 150 } });
+
+      const { cierre } = await service.cerrarCaja(1, { montoContado: 1590 }, EJECUTOR);
+
+      expect(cierre.montoEsperado).toBeUndefined();
+      expect(cierre.diferencia).toBeUndefined();
+      // Lo que el cajero sí debe ver: lo que él contó.
+      expect(Number(cierre.montoFinal)).toBe(1590);
+    });
+
+    it('sí los revela a quien supervisa', async () => {
+      prisma.permisos.findFirst.mockResolvedValue({ id: 1 }); // con Cajas.Editar
+      prepararCajaAbierta(500);
+      tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
+      tx.gastos.aggregate.mockResolvedValue({ _sum: { monto: 150 } });
+
+      const { cierre } = await service.cerrarCaja(1, { montoContado: 1590 }, EJECUTOR);
+
+      expect(cierre.montoEsperado!.toNumber()).toBe(1600);
+      expect(cierre.diferencia!.toNumber()).toBe(-10);
+    });
+
+    it('guarda el arqueo en la base aunque no se devuelva', async () => {
+      prisma.permisos.findFirst.mockResolvedValue(null);
+      prepararCajaAbierta(500);
+      tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
+      tx.gastos.aggregate.mockResolvedValue({ _sum: { monto: 150 } });
+
+      await service.cerrarCaja(1, { montoContado: 1590 }, EJECUTOR);
+
+      // Ocultarlo es solo de cara al cliente: el dato queda registrado.
+      const guardado = tx.cierreCaja.create.mock.calls[0][0].data;
+      expect(guardado.montoEsperado.toNumber()).toBe(1600);
+      expect(guardado.diferencia.toNumber()).toBe(-10);
     });
 
     it('rechaza cerrar una caja ya cerrada', async () => {

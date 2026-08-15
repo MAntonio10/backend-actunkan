@@ -5,6 +5,7 @@ import { BitacoraService } from '../bitacora/bitacora.service';
 import { AbrirCajaDto } from './dto/abrir-caja.dto';
 import { CerrarCajaDto } from './dto/cerrar-caja.dto';
 import { QueryCajaDto } from './dto/query-caja.dto';
+import { QueryCierreDto } from './dto/query-cierre.dto';
 import { getFechaUTC6 } from '../common/utils/date.util';
 
 export interface EjecutorInfo {
@@ -25,6 +26,49 @@ const INCLUDE_DETALLE = {
 @Injectable()
 export class CajasService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Supervisión de caja = permiso `Cajas.Editar`.
+   *
+   * Quien cuenta el efectivo no debe ver el monto esperado: si lo conoce, puede
+   * teclear justo esa cifra y un faltante nunca saldría a la luz. Esa acción quedó
+   * libre cuando se definió que las cajas son inmutables, así que representa
+   * "supervisar" sin necesidad de inventar una acción nueva.
+   */
+  async esSupervisor(idUsuario?: number): Promise<boolean> {
+    if (!idUsuario) return false;
+
+    const permiso = await this.prisma.permisos.findFirst({
+      where: {
+        idUsuario,
+        moduloAccion: {
+          modulo: { nombre: 'Cajas', anulado: false },
+          accion: { nombre: 'Editar' },
+        },
+      },
+    });
+
+    return Boolean(permiso);
+  }
+
+  /** Quita del cierre las cifras que delatan el arqueo. */
+  private ocultarArqueoDeCierre(cierre: any) {
+    if (!cierre) return cierre;
+    const { montoEsperado, diferencia, ...resto } = cierre;
+    return resto;
+  }
+
+  /**
+   * El detalle de la caja trae sus cierres anidados: sin esto, el monto esperado
+   * se filtraría por ahí aunque el endpoint de arqueo esté restringido.
+   */
+  private ocultarArqueoDeCaja(caja: any) {
+    if (!caja?.cierresCaja) return caja;
+    return {
+      ...caja,
+      cierresCaja: caja.cierresCaja.map((c: any) => this.ocultarArqueoDeCierre(c)),
+    };
+  }
 
   private async obtenerNombreEjecutor(tx: any, ejecutor?: EjecutorInfo) {
     let nombreEjecutor = ejecutor?.email;
@@ -69,6 +113,9 @@ export class CajasService {
         _sum: { monto: true },
         where: {
           anulado: false,
+          // Solo lo efectivamente cobrado: un pago con tarjeta pendiente de
+          // confirmación no es dinero en la caja.
+          estadoPago: 'PAGADO',
           opcionPago: { esEfectivo: true },
           tickets: { idAperturaCaja: idApertura, anulado: false },
         },
@@ -129,7 +176,7 @@ export class CajasService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
-  async findAll(query: QueryCajaDto) {
+  async findAll(query: QueryCajaDto, idUsuario?: number) {
     const { estado, fechaInicio, fechaFin, incluirAnulados } = query || {};
     const where: any = {};
 
@@ -147,11 +194,14 @@ export class CajasService {
       if (fechaFin) where.fechaCreacion.lte = new Date(fechaFin);
     }
 
-    return this.prisma.aperturaCaja.findMany({
+    const cajas = await this.prisma.aperturaCaja.findMany({
       where,
       include: INCLUDE_DETALLE,
       orderBy: { fechaCreacion: 'desc' },
     });
+
+    if (await this.esSupervisor(idUsuario)) return cajas;
+    return cajas.map((c) => this.ocultarArqueoDeCaja(c));
   }
 
   async obtenerActual() {
@@ -161,7 +211,11 @@ export class CajasService {
     });
   }
 
-  async findOne(id: number) {
+  /**
+   * `idUsuario` decide si la respuesta incluye las cifras del arqueo. Se omite en
+   * las llamadas internas (emisión de tickets, gastos), que no exponen nada.
+   */
+  async findOne(id: number, idUsuario?: number) {
     const apertura = await this.prisma.aperturaCaja.findUnique({
       where: { id },
       include: INCLUDE_DETALLE,
@@ -171,7 +225,66 @@ export class CajasService {
       throw new NotFoundException(`No se encontró la caja solicitada con el ID ${id}.`);
     }
 
-    return apertura;
+    if (idUsuario === undefined || (await this.esSupervisor(idUsuario))) return apertura;
+    return this.ocultarArqueoDeCaja(apertura);
+  }
+
+  /**
+   * Historial de cierres para supervisión: incluye los anulados, que son la señal
+   * de que una caja se reabrió para corregir un monto.
+   */
+  async historialCierres(query: QueryCierreDto) {
+    const { idUsuario, fechaInicio, fechaFin, soloAnulados, incluirAnulados } = query || {};
+    const pagina = query?.pagina && query.pagina > 0 ? query.pagina : 1;
+    const limite = query?.limite && query.limite > 0 ? query.limite : 50;
+
+    const where: any = {};
+
+    if (soloAnulados === 'true') where.anulado = true;
+    else if (incluirAnulados !== 'true') where.anulado = false;
+
+    if (idUsuario) where.aperturaCaja = { idUsuario };
+
+    if (fechaInicio || fechaFin) {
+      where.fechaCierre = {};
+      if (fechaInicio) where.fechaCierre.gte = new Date(fechaInicio);
+      if (fechaFin) where.fechaCierre.lte = new Date(fechaFin);
+    }
+
+    const [datos, total, agregados] = await Promise.all([
+      this.prisma.cierreCaja.findMany({
+        where,
+        include: {
+          aperturaCaja: {
+            include: {
+              usuario: { select: { id: true, nombre: true, correo: true } },
+              estado: true,
+            },
+          },
+        },
+        orderBy: { fechaCierre: 'desc' },
+        skip: (pagina - 1) * limite,
+        take: limite,
+      }),
+      this.prisma.cierreCaja.count({ where }),
+      this.prisma.cierreCaja.aggregate({
+        where,
+        _sum: { montoFinal: true, montoEsperado: true, diferencia: true },
+      }),
+    ]);
+
+    return {
+      datos,
+      total,
+      pagina,
+      limite,
+      metricas: {
+        totalCierres: total,
+        totalContado: (agregados._sum.montoFinal ?? new Prisma.Decimal(0)).toString(),
+        totalEsperado: (agregados._sum.montoEsperado ?? new Prisma.Decimal(0)).toString(),
+        diferenciaAcumulada: (agregados._sum.diferencia ?? new Prisma.Decimal(0)).toString(),
+      },
+    };
   }
 
   async arqueo(id: number) {
@@ -192,6 +305,11 @@ export class CajasService {
   }
 
   async cerrarCaja(id: number, dto: CerrarCajaDto, ejecutor?: EjecutorInfo) {
+    // Se resuelve antes de la transacción para decidir si la respuesta puede
+    // revelar el arqueo: quien cuenta el efectivo no debe ver la diferencia,
+    // o bastaría anular y volver a cerrar hasta cuadrar.
+    const supervisa = await this.esSupervisor(ejecutor?.id);
+
     return this.prisma.$transaction(async (tx) => {
       const apertura = await tx.aperturaCaja.findUnique({
         where: { id },
@@ -241,7 +359,10 @@ export class CajasService {
         descripcion: `Se cerró la caja (ID ${apertura.id}). Monto esperado: ${montoEsperado}, monto contado: ${dto.montoContado}, diferencia: ${diferencia}.`,
       });
 
-      return { apertura: aperturaActualizada, cierre };
+      return {
+        apertura: supervisa ? aperturaActualizada : this.ocultarArqueoDeCaja(aperturaActualizada),
+        cierre: supervisa ? cierre : this.ocultarArqueoDeCierre(cierre),
+      };
     });
   }
 

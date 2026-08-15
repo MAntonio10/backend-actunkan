@@ -12,6 +12,9 @@ import { CajasService } from '../cajas/cajas.service';
 import { EjecutorInfo } from '../common/utils/ejecutor.util';
 import { getFechaUTC6 } from '../common/utils/date.util';
 import { construirPayloadQr, firmarNumeroTicket, verificarFirmaTicket } from '../common/utils/qr.util';
+import { GuiasService } from '../guias/guias.service';
+import { RecurrenteService } from '../pagos/recurrente.service';
+import { ESTADO_PAGO_PAGADO, ESTADO_PAGO_PENDIENTE } from '../pagos/pagos.service';
 import { EmitirTicketDto } from './dto/emitir-ticket.dto';
 import { QueryTicketDto } from './dto/query-ticket.dto';
 import { ValidarTicketDto } from './dto/validar-ticket.dto';
@@ -41,6 +44,7 @@ export class TicketsService {
     private readonly prisma: PrismaService,
     private readonly cajasService: CajasService,
     private readonly bitacoraService: BitacoraService,
+    private readonly recurrente: RecurrenteService,
   ) {}
 
   private async obtenerNombreEjecutor(tx: any, ejecutor?: EjecutorInfo) {
@@ -118,6 +122,40 @@ export class TicketsService {
     return new Prisma.Decimal(tarifa.precio);
   }
 
+  /**
+   * Crea el link de pago (`checkout_url`) para una forma de pago que no es efectivo.
+   * Ese link es el que se copia y se envía al cliente por correo o WhatsApp.
+   *
+   * Si la pasarela falla, la excepción aborta la transacción y **la venta no se
+   * registra**: es preferible a dejar un ticket sin forma de cobrarlo.
+   */
+  private async crearLinkDePago(concepto: string, monto: Prisma.Decimal) {
+    const centavos = monto.mul(100).toDecimalPlaces(0).toNumber();
+
+    const checkout = await this.recurrente.crearCheckout({
+      concepto,
+      montoEnCentavos: centavos,
+      successUrl: process.env.RECURRENTE_SUCCESS_URL || 'http://localhost:3000/pago/exito',
+      cancelUrl: process.env.RECURRENTE_CANCEL_URL || 'http://localhost:3000/pago/cancelado',
+    });
+
+    return { idPagoPasarela: checkout.id, checkoutUrl: checkout.checkout_url };
+  }
+
+  /**
+   * Datos de pago según la forma elegida:
+   * el efectivo se cobra en el acto; la tarjeta genera un link y queda pendiente
+   * hasta que la pasarela confirme.
+   */
+  private async prepararPago(opcionPago: any, monto: Prisma.Decimal, concepto: string) {
+    if (opcionPago.esEfectivo) {
+      return { estadoPago: ESTADO_PAGO_PAGADO, fechaPago: getFechaUTC6() };
+    }
+
+    const { idPagoPasarela, checkoutUrl } = await this.crearLinkDePago(concepto, monto);
+    return { estadoPago: ESTADO_PAGO_PENDIENTE, idPagoPasarela, checkoutUrl };
+  }
+
   private async resolverGuia(tx: any, dto: EmitirTicketDto, ahora: Date) {
     const guiaDto = dto.guia;
     if (!guiaDto) return null;
@@ -143,6 +181,10 @@ export class TicketsService {
     if (guiaDto.tieneCarnet === true && !guiaDto.numeroCarnet) {
       throw new BadRequestException('Debe indicar el número de carnet cuando el guía tiene carnet.');
     }
+
+    // Sin esta verificación, escribir dos veces el mismo nombre creaba dos guías y
+    // el selector terminaba lleno de repetidos.
+    await GuiasService.exigirNombreLibre(tx, guiaDto.nombre);
 
     // El guía nuevo queda registrado en el catálogo para futuras emisiones.
     return tx.guia.create({
@@ -235,6 +277,43 @@ export class TicketsService {
       // emitir, así que esto es solo para que el formulario muestre el total.
       tarifas,
       precioTicketGuia: tarifaGuia ? tarifaGuia.precio : null,
+    };
+  }
+
+  /**
+   * Agrega el QR codificado y el estado de pago del ticket para el frontend.
+   * Si tiene pagos pendientes de confirmación, se envía como 'Pago pendiente'.
+   */
+  private formatearTicket(ticket: any) {
+    let pagos: any[] = [];
+    if (Array.isArray(ticket.ticketPagos)) {
+      pagos = ticket.ticketPagos;
+    } else if (ticket.ticketPagos?.create) {
+      pagos = Array.isArray(ticket.ticketPagos.create)
+        ? ticket.ticketPagos.create
+        : [ticket.ticketPagos.create];
+    } else if (ticket.ticketPagos && typeof ticket.ticketPagos === 'object') {
+      pagos = [ticket.ticketPagos];
+    }
+
+    const tienePendiente =
+      ticket.estadoPago === ESTADO_PAGO_PENDIENTE ||
+      ticket.estadoPago === 'Pago pendiente' ||
+      pagos.some(
+        (p: any) =>
+          !p.anulado && (p.estadoPago === ESTADO_PAGO_PENDIENTE || p.estadoPago === 'Pago pendiente'),
+      );
+
+    const estadoPago = ticket.anulado
+      ? 'CANCELADO'
+      : tienePendiente
+      ? 'Pago pendiente'
+      : 'PAGADO';
+
+    return {
+      ...ticket,
+      estadoPago,
+      qr: construirPayloadQr(ticket.numeroTicket, ticket.qrFirma),
     };
   }
 
@@ -345,6 +424,15 @@ export class TicketsService {
         const anio = ahora.getFullYear();
         const guia = await this.resolverGuia(tx, dto, ahora);
 
+        // Con tarjeta esto llama a la pasarela desde dentro de la transacción.
+        // Se acepta porque el efectivo —la mayoría de las ventas— nunca pasa por aquí,
+        // y la llamada tiene un tope de 15 s.
+        const pagoVisitante = await this.prepararPago(
+          opcionPago,
+          montoVisitantes,
+          `Ingreso ${atraccion.nombre} - ${dto.nombreGrupo}`,
+        );
+
         const grupo = await tx.grupoEmision.create({
           data: {
             idUsuario: ejecutor.id,
@@ -383,6 +471,7 @@ export class TicketsService {
               create: {
                 idOpcionPago: opcionPago.id,
                 monto: montoVisitantes,
+                ...pagoVisitante,
                 fechaCreacion: ahora,
                 fechaActualizacion: ahora,
               },
@@ -396,6 +485,7 @@ export class TicketsService {
         // --- Ticket independiente del guía sin carnet ---
         if (guia && !guia.tieneCarnet) {
           const tarifaGuia = await tx.tarifaGuia.findFirst({ where: { vigenteHasta: null } });
+
           if (!tarifaGuia) {
             throw new BadRequestException(
               'No hay una tarifa vigente para el ticket de guía. Configure el catálogo de tarifas.',
@@ -429,6 +519,7 @@ export class TicketsService {
                 create: {
                   idOpcionPago: opcionPagoGuia.id,
                   monto: montoGuia,
+                  ...(await this.prepararPago(opcionPagoGuia, montoGuia, `Ticket de guía ${guia.nombre}`)),
                   fechaCreacion: ahora,
                   fechaActualizacion: ahora,
                 },
@@ -461,10 +552,7 @@ export class TicketsService {
           montoVisitantes: montoVisitantes.toString(),
           montoGuia: tickets.length > 1 ? tickets[1].montoTotal.toString() : null,
           montoTotalGeneral: montoTotalGeneral.toString(),
-          tickets: tickets.map((t) => ({
-            ...t,
-            qr: construirPayloadQr(t.numeroTicket, t.qrFirma),
-          })),
+          tickets: tickets.map((t) => this.formatearTicket(t)),
         };
       },
       // Serializable: el correlativo y la unicidad del folio dependen de que dos
@@ -529,7 +617,7 @@ export class TicketsService {
     ]);
 
     return {
-      datos,
+      datos: datos.map((t) => this.formatearTicket(t)),
       total,
       pagina,
       limite,
@@ -551,7 +639,7 @@ export class TicketsService {
       throw new NotFoundException(`No se encontró el ticket con el ID ${id}.`);
     }
 
-    return { ...ticket, qr: construirPayloadQr(ticket.numeroTicket, ticket.qrFirma) };
+    return this.formatearTicket(ticket);
   }
 
   async anular(id: number, ejecutor?: EjecutorInfo) {
@@ -589,7 +677,7 @@ export class TicketsService {
         descripcion: `Se anuló el ticket ${anulado.numeroTicket} y sus pagos asociados.`,
       });
 
-      return anulado;
+      return this.formatearTicket(anulado);
     });
   }
 
@@ -635,6 +723,21 @@ export class TicketsService {
       );
     }
 
+    // El ticket se emite junto con el link de pago, así que su QR existe antes de
+    // que la tarjeta se cobre. Sin esta verificación, bastaría generar un link y
+    // presentarse en la entrada sin pagar.
+    const pendiente = ticket.ticketPagos?.find(
+      (p: any) => !p.anulado && (p.estadoPago === ESTADO_PAGO_PENDIENTE || p.estadoPago === 'Pago pendiente'),
+    );
+
+    if (pendiente) {
+      await registrarIntento('RECHAZADO - pago pendiente de confirmación');
+      throw new ConflictException(
+        `El ticket ${dto.numeroTicket} tiene un pago pendiente de confirmación. ` +
+          'No se permite el ingreso hasta que la pasarela confirme el cobro.',
+      );
+    }
+
     const usado = await this.prisma.ticket.update({
       where: { id: ticket.id },
       data: { fechaUso: getFechaUTC6(), idUsuarioUso: ejecutor?.id ?? null },
@@ -643,6 +746,6 @@ export class TicketsService {
 
     await registrarIntento('ACEPTADO - ingreso autorizado');
 
-    return { valido: true, mensaje: 'Ingreso autorizado.', ticket: usado };
+    return { valido: true, mensaje: 'Ingreso autorizado.', ticket: this.formatearTicket(usado) };
   }
 }

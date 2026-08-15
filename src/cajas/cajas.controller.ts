@@ -3,6 +3,7 @@ import { CajasService } from './cajas.service';
 import { AbrirCajaDto } from './dto/abrir-caja.dto';
 import { CerrarCajaDto } from './dto/cerrar-caja.dto';
 import { QueryCajaDto } from './dto/query-caja.dto';
+import { QueryCierreDto } from './dto/query-cierre.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 
 @Controller('cajas')
@@ -25,8 +26,20 @@ export class CajasController {
 
   @Get()
   @RequirePermission('Cajas', 'Ver')
-  findAll(@Query() query: QueryCajaDto) {
-    return this.cajasService.findAll(query);
+  findAll(@Query() query: QueryCajaDto, @Request() req: any) {
+    return this.cajasService.findAll(query, this.getEjecutor(req)?.id);
+  }
+
+  /**
+   * Historial de cierres para supervisión. Exige `Cajas.Editar` porque expone el
+   * monto esperado y la diferencia de cada arqueo.
+   *
+   * Debe declararse antes de `@Get(':id')` para que la ruta literal gane.
+   */
+  @Get('cierres')
+  @RequirePermission('Cajas', 'Editar')
+  historialCierres(@Query() query: QueryCierreDto) {
+    return this.cajasService.historialCierres(query);
   }
 
   /**
@@ -46,12 +59,17 @@ export class CajasController {
 
   @Get(':id')
   @RequirePermission('Cajas', 'Ver')
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.cajasService.findOne(id);
+  findOne(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
+    return this.cajasService.findOne(id, this.getEjecutor(req)?.id ?? 0);
   }
 
+  /**
+   * Arqueo previo al cierre. Exige `Cajas.Editar` (supervisión), no `Ver`:
+   * si el cajero conociera el monto esperado, bastaría teclear esa cifra para que
+   * ningún faltante saliera nunca a la luz.
+   */
   @Get(':id/arqueo')
-  @RequirePermission('Cajas', 'Ver')
+  @RequirePermission('Cajas', 'Editar')
   arqueo(@Param('id', ParseIntPipe) id: number) {
     return this.cajasService.arqueo(id);
   }
@@ -62,8 +80,13 @@ export class CajasController {
     return this.cajasService.cerrarCaja(id, cerrarCajaDto, this.getEjecutor(req));
   }
 
+  /**
+   * Anular el cierre reabre la caja. Exige `Cajas.Editar` (supervisión), no `Anular`:
+   * de lo contrario el cajero podría cerrar, ver la diferencia, anular y volver a
+   * cerrar con la cifra exacta, dejando el arqueo sin valor de control.
+   */
   @Patch(':id/cierre/anular')
-  @RequirePermission('Cajas', 'Anular')
+  @RequirePermission('Cajas', 'Editar')
   anularCierre(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
     return this.cajasService.anularCierre(id, this.getEjecutor(req));
   }

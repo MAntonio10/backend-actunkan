@@ -15,6 +15,8 @@ import { BitacoraModule } from './bitacora/bitacora.module';
 import { CajasModule } from './cajas/cajas.module';
 import { GastosModule } from './gastos/gastos.module';
 import { TiposGastoModule } from './tipos-gasto/tipos-gasto.module';
+import { GuiasModule } from './guias/guias.module';
+import { PagosModule } from './pagos/pagos.module';
 import { TarifasModule } from './tarifas/tarifas.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
@@ -54,6 +56,8 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
     CajasModule,
     GastosModule,
     TiposGastoModule,
+    GuiasModule,
+    PagosModule,
     TarifasModule,
     TicketsModule,
   ],

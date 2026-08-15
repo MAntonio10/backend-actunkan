@@ -7,6 +7,9 @@ Documento de referencia para la integración con la API REST del sistema **Aktun
 ## Novedades en Autenticación
 - **Restablecimiento de Contraseña con Código de 6 Dígitos:** Se agregaron los endpoints públicos `POST /auth/solicitar-codigo-restablecimiento`, `POST /auth/validar-codigo-restablecimiento` y `POST /auth/restablecer-contrasena` con envío de correos vía Nodemailer.
 - **Activación de Registros:** Endpoints explícitos `PATCH /:id/activar` para reactivar registros anulados en **Usuarios**, **Puestos** y **Módulos**.
+
+---
+
 ## Seguridad y límites de peticiones
 
 **`JWT_SECRET` es obligatorio.** La aplicación **no arranca** si falta o tiene menos de 32 caracteres (`src/auth/auth.module.ts`). Antes existía un valor por defecto en el código, lo que permitía firmar tokens de cualquier usuario a quien tuviera acceso al repositorio; ese fallback se eliminó. Cambiar el secreto invalida todas las sesiones activas.
@@ -104,9 +107,28 @@ Pendientes de implementar (aún sin código): `Donaciones`, `Sincronizacion`, `R
 - **Acciones:** `'Ver'`, `'Crear'`, `'Editar'`, `'Anular'`, `'Exportar'`
 - Un handler **sin** `@RequirePermission` queda accesible a cualquier usuario autenticado (`permissions.guard.ts` es fail-open por diseño), así que toda ruta nueva debe declararlo explícitamente.
 
+## Control de arqueo: qué ve el cajero y qué ve el supervisor
+
+**Quien cuenta el efectivo no debe conocer el monto esperado.** Si lo supiera, bastaría teclear esa cifra para que ningún faltante saliera nunca a la luz. Por eso el backend **no lo expone** a quien solo opera la caja — ocultarlo en el frontend sería inútil, porque el dato viajaría igual y se leería en la pestaña de red.
+
+La supervisión se representa con **`Cajas.Editar`**, una acción que quedó libre al definir que las cajas son inmutables.
+
+| Capacidad | Cajero (`Ver` + `Crear`) | Supervisor (+ `Editar`) |
+|---|---|---|
+| Abrir y cerrar caja | Sí | Sí |
+| Ver `montoInicial`, `montoFinal` (lo que él contó) | Sí | Sí |
+| `GET /cajas/:id/arqueo` (monto esperado) | **403** | Sí |
+| `montoEsperado` y `diferencia` en el cierre | **Se omiten** | Sí |
+| `GET /cajas/cierres` (historial) | **403** | Sí |
+| Anular un cierre y reabrir la caja | **403** | Sí |
+
+> **Anular un cierre exige `Cajas.Editar`, no `Anular`.** De lo contrario el cajero podría cerrar, ver la diferencia, anular y volver a cerrar con la cifra exacta: el arqueo perdería todo valor de control. Con `Anular` sigue pudiendo anular tickets y aperturas equivocadas.
+>
+> Ocultar estas cifras es solo de cara al cliente: **el arqueo siempre se calcula y se guarda** en `CierreCaja`, así que los reportes y la auditoría lo conservan íntegro.
+
 ## Novedades en Cajas
 - **Apertura y cierre de caja con arqueo automático:** Se agregó el módulo `/cajas`. Al cerrar, el sistema calcula el monto esperado (`montoInicial + ventas en efectivo - gastos`) y lo compara contra el monto contado, generando una `diferencia` (sobrante/faltante).
-- **Inmutabilidad:** Ni la apertura ni el cierre se editan una vez creados — solo se pueden **anular** (`Cajas` / `Anular`). El módulo `Cajas` no usa la acción `'Editar'`.
+- **Inmutabilidad:** Ni la apertura ni el cierre se editan una vez creados — solo se pueden **anular**. La acción `'Editar'` del módulo `Cajas` representa **supervisión**: ver el arqueo, el historial de cierres y anular un cierre.
 - **Gastos:** Se agregó `/gastos` (registro de gastos contra la caja abierta actual) y su catálogo `/tipos-gasto`.
 - **Integridad del arqueo:** un gasto solo puede crearse, editarse o anularse mientras su caja sigue **abierta**. Tocarlo después del cierre devuelve `400`, porque alteraría de forma retroactiva un arqueo ya guardado.
 - **Reapertura controlada:** anular un cierre devuelve `409` si en ese momento hay otra caja abierta; nunca pueden quedar dos cajas abiertas a la vez.
@@ -116,6 +138,8 @@ Pendientes de implementar (aún sin código): `Donaciones`, `Sincronizacion`, `R
 ## Novedades en Tickets
 - **Módulo de emisión completo:** `/tickets` (catálogos, emisión, historial con métricas y validación de QR en taquilla) y `/tarifas` con vigencia histórica.
 - **Sin CRUD por catálogo:** atracciones, orígenes, países, tipos y formas de pago son datos de configuración que alimentan el formulario. Se leen todos con `GET /tickets/catalogos` y se administran por seed.
+- **Pase imprimible en PDF:** `GET /tickets/:id/pdf` (ver 11.6), con QR de validación, desglose por categoría y color distinto para visitante y guía.
+- **Guías:** consulta y mantenimiento en `/guias` (sección 14). El alta sigue ocurriendo dentro de la emisión, y los nombres repetidos se rechazan con `409`.
 - **Cierra el circuito de dinero:** cada ticket queda asociado a la caja abierta y genera su `TicketPago`; el arqueo de `/cajas/:id/arqueo` por fin suma ventas en efectivo además de restar gastos.
 - **Variables de entorno nuevas:** `TICKET_QR_SECRET` (firma HMAC del QR — si cambia, los pases ya impresos dejan de validar) y `TICKET_SERIE` (serie alfanumérica del folio, default `TCK`).
 - **Permiso único:** todo el módulo se controla con `EmisionTickets` + acción. Los catálogos (atracciones, guías, tarifas, países…) **no** tienen módulo de permiso propio.
@@ -124,6 +148,15 @@ Pendientes de implementar (aún sin código): `Donaciones`, `Sincronizacion`, `R
 ---
 
 ## Índice de Contenidos
+
+**Conceptos transversales** (leer antes de integrar):
+
+- [Seguridad y límites de peticiones](#seguridad-y-límites-de-peticiones) — `JWT_SECRET`, sesiones con refresh token, rate limit, variables de entorno
+- [Estructura de permisos](#estructura-de-permisos) — módulos generales, sub-módulos y catálogo de permisos
+- [Control de arqueo](#control-de-arqueo-qué-ve-el-cajero-y-qué-ve-el-supervisor) — qué cifras ve el cajero y cuáles solo el supervisor
+
+**Endpoints:**
+
 1. [Autenticación (`/auth`)](#1-autenticación-auth)
 2. [Usuarios (`/usuarios`)](#2-usuarios-usuarios)
 3. [Puestos (`/puestos`)](#3-puestos-puestos)
@@ -137,6 +170,7 @@ Pendientes de implementar (aún sin código): `Donaciones`, `Sincronizacion`, `R
 11. [Tickets (`/tickets`)](#11-tickets-tickets)
 12. [Tarifas (`/tarifas`)](#12-tarifas-tarifas)
 13. [Catálogos de Tickets (`GET /tickets/catalogos`)](#13-catálogos-de-tickets--get-ticketscatalogos)
+14. [Guías (`/guias`)](#14-guías-guias)
 
 ---
 
@@ -914,7 +948,10 @@ Devuelve los módulos a los que el usuario de la sesión tiene acceso, con las a
 ---
 
 ### 6.2 `GET /modulo-acciones` (Listar Asociaciones Módulo-Acción)
+**Es la lista que debe alimentar la pantalla de asignación de permisos.** Por defecto devuelve **solo los vínculos asignables**: módulos activos y que no sean de infraestructura.
+
 * **Permiso requerido:** `Módulo: 'Usuarios'`, `Acción: 'Ver'`
+* **Query Params (Opcional):** `?incluirNoAsignables=true` para ver también los de módulos anulados o no asignables (administración y diagnóstico).
 * **Response (200 OK - JSON):**
 ```json
 [
@@ -922,11 +959,12 @@ Devuelve los módulos a los que el usuario de la sesión tiene acceso, con las a
     "id": 12,
     "idModulo": 1,
     "idAccion": 4,
-    "modulo": { "id": 1, "nombre": "Usuarios", "anulado": false },
+    "modulo": { "id": 1, "nombre": "Usuarios", "anulado": false, "esAsignable": true },
     "accion": { "id": 4, "nombre": "Anular" }
   }
 ]
 ```
+> ⚠️ Un "seleccionar todos los permisos" en el frontend debe construirse con **esta** lista. Antes devolvía todos los vínculos, incluidos los de módulos anulados, y `POST /usuarios/:id/permisos` los rechazaba con `400`.
 
 ---
 
@@ -1126,7 +1164,7 @@ Módulo de apertura y cierre de caja. Solo puede existir **una caja abierta a la
 ### 8.5 `GET /cajas/:id/arqueo` (Previsualizar Arqueo)
 Calcula el monto esperado sin cerrar la caja, para revisión previa.
 
-* **Permiso requerido:** `Módulo: 'Cajas'`, `Acción: 'Ver'`
+* **Permiso requerido:** `Módulo: 'Cajas'`, `Acción: 'Editar'` — **es supervisión**, no lectura: quien cuenta el efectivo no debe ver esta cifra (ver [Control de arqueo](#control-de-arqueo-qué-ve-el-cajero-y-qué-ve-el-supervisor)).
 * **Path Params:** `id` (número entero)
 * **Response (200 OK - JSON):**
 ```json
@@ -1178,9 +1216,10 @@ Calcula el arqueo, crea el registro de cierre (no editable) y marca la caja como
 ### 8.7 `PATCH /cajas/:id/cierre/anular` (Anular Cierre y Reabrir Caja)
 Anula el cierre vigente y revierte el estado de la caja a `'Abierta'`, para corregir un cierre hecho por error.
 
-* **Permiso requerido:** `Módulo: 'Cajas'`, `Acción: 'Anular'`
+* **Permiso requerido:** `Módulo: 'Cajas'`, `Acción: 'Editar'` — **es supervisión**. Si el cajero pudiera anular su propio cierre, podría cerrar, ver la diferencia, anular y volver a cerrar cuadrado.
 * **Path Params:** `id` (número entero, ID de la apertura)
 * **Response (200 OK - JSON):** Falla con `400 Bad Request` si la caja no tiene un cierre vigente, y con `409 Conflict` si ya existe otra caja abierta (reabrir dejaría dos cajas abiertas).
+* Un cierre anulado **no se puede reactivar**: para volver a cerrar la caja se emite un cierre nuevo.
 ```json
 {
   "id": 5,
@@ -1202,6 +1241,49 @@ Anula una apertura hecha por error. Solo permitido mientras la caja sigue `'Abie
   "anulado": true
 }
 ```
+
+---
+
+### 8.9 `GET /cajas/cierres` (Historial de cierres)
+Vista de supervisión: todos los cierres con su arqueo, incluidos los anulados —que son la señal de que una caja se reabrió para corregir un monto.
+
+* **Permiso requerido:** `Módulo: 'Cajas'`, `Acción: 'Editar'`
+* **Query Params (todos opcionales):** `idUsuario` (quien abrió la caja), `fechaInicio`, `fechaFin`, `soloAnulados=true`, `incluirAnulados=true`, `pagina` (default 1), `limite` (default 50, máx. 200)
+* **Response (200 OK - JSON):** Las métricas se agregan en el servidor sobre el filtro aplicado.
+```json
+{
+  "datos": [
+    {
+      "id": 12,
+      "idApertura": 15,
+      "fechaCierre": "2026-08-15T01:30:00.000Z",
+      "montoFinal": "550.0000",
+      "montoEsperado": "635.0000",
+      "diferencia": "-85.0000",
+      "observaciones": "Faltante detectado",
+      "anulado": false,
+      "aperturaCaja": {
+        "id": 15,
+        "montoInicial": "500.0000",
+        "usuario": { "id": 4, "nombre": "Giselle Pereira", "correo": "..." },
+        "estado": { "id": 2, "nombre": "Cerrada" }
+      }
+    }
+  ],
+  "total": 12,
+  "pagina": 1,
+  "limite": 50,
+  "metricas": {
+    "totalCierres": 12,
+    "totalContado": "6100.0000",
+    "totalEsperado": "6185.0000",
+    "diferenciaAcumulada": "-85.0000"
+  }
+}
+```
+> `diferenciaAcumulada` negativa es faltante acumulado; positiva, sobrante.
+>
+> La ruta se declara antes de `/cajas/:id` para que no la capture el parámetro numérico.
 
 ---
 
@@ -1376,6 +1458,9 @@ Emisión de boletos del parque. Reglas que aplica el servidor:
 }
 ```
 > `guia` es opcional. Con `modo: "existente"` se envía `idGuia`; con `modo: "nuevo"` se envían `nombre`, `tieneCarnet` y `numeroCarnet` (obligatorio si `tieneCarnet: true`). Un guía nuevo queda registrado en el catálogo.
+>
+> ⚠️ **Nombres de guía repetidos se rechazan con `409`** y la emisión completa falla. El mensaje incluye el ID del guía existente para que el frontend ofrezca seleccionarlo:
+> `"Ya existe un guía activo llamado 'Carlos Garcia' (ID 14). Selecciónelo de la lista en vez de crear uno nuevo."`
 
 * **Response (201 Created - JSON):**
 ```json
@@ -1459,6 +1544,85 @@ Verifica la firma del QR y sella el primer uso. Cada intento, aceptado o rechaza
 
 ---
 
+### 11.5 Forma completa del ticket
+
+Tanto `GET /tickets` (en cada elemento de `datos[]`) como `GET /tickets/:id` devuelven **todos** estos campos. Los ejemplos anteriores están abreviados; esta es la respuesta real:
+
+```json
+{
+  "id": 51,
+  "numeroTicket": "TCK-2026-000051",
+  "idGrupoEmision": 38,
+  "tipoTicket": "VISITANTE",
+  "nombre": "Familia Rodríguez",
+  "cantidadPersonas": 5,
+  "montoTotal": "70.0000",
+  "observaciones": "Grupo con reserva previa",
+  "fechaCreacion": "2026-08-14T09:10:47.229Z",
+  "fechaActualizacion": "2026-08-14T09:10:47.229Z",
+  "anulado": false,
+  "qrFirma": "9f2a…",
+  "fechaUso": null,
+  "idUsuarioUso": null,
+
+  "atraccion":     { "id": 2, "codigo": "mariposario", "nombre": "Biblioteca ambiental" },
+  "origen":        { "id": 1, "codigo": "nacional", "nombre": "Nacional" },
+  "pais":          null,
+  "tipoRecorrido": { "id": 1, "codigo": "corto", "nombre": "Recorrido corto (~45 minutos)" },
+  "guia":          { "id": 4, "nombre": "Carlos Garcia", "tieneCarnet": true },
+  "usuario":       { "id": 3, "nombre": "Manuel Castellanos", "correo": "..." },
+
+  "visitantePorTickets": [
+    {
+      "idTipoVisitante": 1,
+      "cantidad": 2,
+      "precioUnitario": "20",
+      "subtotal": "40",
+      "tipoVisitantes": { "id": 1, "codigo": "adulto", "nombre": "Adulto" }
+    },
+    {
+      "idTipoVisitante": 2,
+      "cantidad": 3,
+      "precioUnitario": "10",
+      "subtotal": "30",
+      "tipoVisitantes": { "id": 2, "codigo": "nino", "nombre": "Niño (7 años o más)" }
+    }
+  ],
+
+  "ticketPagos": [
+    { "idOpcionPago": 1, "monto": "70.0000", "opcionPago": { "nombre": "Efectivo", "esEfectivo": true } }
+  ]
+}
+```
+
+Notas para el frontend:
+
+- **`visitantePorTickets` es el desglose por categoría**: cuántos de cada tipo, el **precio unitario aplicado** y el subtotal. Es histórico — refleja lo que se cobró, no la tarifa vigente hoy. Los tickets de tipo `GUIA` traen este arreglo **vacío** (una persona, sin desglose).
+- **Usa `tipoVisitantes.codigo`** (`adulto`, `nino`, `nino_menor`, `centro_educativo`) para cualquier lógica; `nombre` es texto editable.
+- **`guia` llega en los dos tickets** de una emisión con guía, incluido el de tipo `GUIA`. Es `null` cuando la venta no llevó guía.
+- **`guia.tieneCarnet` refleja el estado actual** del guía en el catálogo, no el que tenía al emitirse. Para saber si se le cobró aparte, la fuente fiable es la existencia de un segundo ticket con `tipoTicket: "GUIA"` en el mismo `idGrupoEmision`.
+- **`idGrupoEmision`** empareja el ticket del visitante con el de su guía.
+- **`pais`** solo viene cuando el origen es extranjero.
+- Los montos son **cadenas**, no números (`Decimal(18,4)` de Prisma): conviértelos con `Number()` antes de operar.
+
+---
+
+### 11.6 `GET /tickets/:id/pdf` (Pase de acceso imprimible)
+Devuelve el pase listo para descargar e imprimir.
+
+* **Permiso requerido:** `Módulo: 'EmisionTickets'`, `Acción: 'Ver'`
+* **Response:** `application/pdf`, con `Content-Disposition: inline; filename="TCK-2026-000051.pdf"` (el navegador lo previsualiza y el usuario decide descargar o imprimir).
+
+Características:
+
+- **Página de 80 mm de ancho**, alto ajustado al contenido: sirve en impresora térmica de taquilla y en una de oficina.
+- **Sin fondos de color**: las cajas van solo con contorno, porque en térmica cualquier relleno sale como mancha oscura.
+- **Color según el tipo de pase** — verde para el visitante, ámbar para el guía, con marco e insignia `GUÍA SIN CARNET`. En térmica sale en blanco y negro, pero el PDF descargado se distingue de un vistazo.
+- Incluye el **desglose por categoría** y el QR con el mismo payload que espera `POST /tickets/validar`.
+- Cuando la emisión genera dos tickets, **cada uno tiene su propio PDF**: se piden por separado con su `id`.
+
+---
+
 ## 12. Tarifas (`/tarifas`)
 
 Editar un precio **no sobrescribe** la fila: cierra la vigencia de la tarifa actual y crea una nueva. Los tickets ya vendidos conservan el precio con el que se emitieron (`VisitantePorTicket.precioUnitario`).
@@ -1512,7 +1676,43 @@ Notas de uso:
 - **`codigo` es la clave estable** de las reglas de negocio (`nino_menor` siempre Q0, `centro_educativo` no aplica a extranjero). `nombre` es solo presentación.
 - **`tarifas` es únicamente para que el formulario muestre el total al usuario.** El servidor vuelve a resolver el precio al emitir, así que un cliente manipulado no puede alterar lo que se cobra.
 - **Guatemala viene en `paises`**; excluirla del selector de extranjeros es cosa del frontend.
-- Los **guías nuevos se crean dentro de `POST /tickets/emitir`** (bloque `guia.modo: "nuevo"`), no por un endpoint aparte.
+- Los **guías nuevos se crean dentro de `POST /tickets/emitir`** (bloque `guia.modo: "nuevo"`), no por un endpoint aparte. Para consultarlos, corregirlos o darlos de baja ver la sección 14.
 - Para **editar precios** sí hay endpoints: ver sección 12 (`/tarifas`).
 - `/tipos-gasto` sigue existiendo aparte porque pertenece al sub-módulo `Gastos` de `Cajas`, no a la emisión de tickets.
+
+---
+
+## 14. Guías (`/guias`)
+
+Catálogo de guías acompañantes. **No tiene alta independiente**: un guía nuevo se registra dentro de `POST /tickets/emitir` (bloque `guia.modo: "nuevo"`), que es donde el taquillero lo captura de verdad. Estos endpoints sirven para consultarlos, corregirlos y darlos de baja.
+
+Todos exigen el módulo **`EmisionTickets`**.
+
+| Método | Ruta | Acción | Descripción |
+|---|---|---|---|
+| GET | `/guias` | `Ver` | Listado para el selector. Query: `buscar` (filtra por nombre), `incluirAnulados=true` |
+| GET | `/guias/:id` | `Ver` | Detalle, con `_count.tickets` (cuántos tickets tiene asociados) |
+| PATCH | `/guias/:id` | `Editar` | Corregir `nombre`, `tieneCarnet` y `numeroCarnet` |
+| PATCH | `/guias/:id/activar` | `Editar` | Reactivar un guía anulado |
+| DELETE | `/guias/:id` | `Anular` | Baja lógica: desaparece del selector, los tickets emitidos conservan la referencia |
+
+* **Response (200 OK - JSON):**
+```json
+{
+  "id": 14,
+  "nombre": "Carlos Garcia",
+  "tieneCarnet": true,
+  "numeroCarnet": "GTK-1002",
+  "anulado": false,
+  "fechaCreacion": "2026-08-14T22:41:10.000Z",
+  "fechaActualizacion": "2026-08-15T18:20:00.000Z"
+}
+```
+
+Reglas:
+
+- **Nombres duplicados se rechazan con `409`** entre guías activos, tanto al crear durante la emisión como al renombrar. Guardar un guía con su mismo nombre no genera conflicto consigo mismo.
+- **`numeroCarnet` es obligatorio si `tieneCarnet: true`** (`400` en caso contrario). Al poner `tieneCarnet: false` el número se limpia automáticamente.
+- **`/activar` existe porque no hay alta independiente**: sin él, un guía anulado por error quedaría irrecuperable desde la API.
+- El **número de carnet nunca se imprime en el pase**, solo se guarda internamente.
 

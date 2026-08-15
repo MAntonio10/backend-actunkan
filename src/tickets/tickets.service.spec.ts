@@ -10,6 +10,7 @@ import { BitacoraService } from '../bitacora/bitacora.service';
 import { CajasService } from '../cajas/cajas.service';
 import { TicketsService } from './tickets.service';
 import { firmarNumeroTicket } from '../common/utils/qr.util';
+import { RecurrenteService } from '../pagos/recurrente.service';
 
 const EJECUTOR = { id: 1, email: 'qa@test.com' };
 
@@ -61,7 +62,8 @@ const crearTxMock = () => {
       }),
     },
     tarifaGuia: { findFirst: jest.fn().mockResolvedValue({ precio: 15 }) },
-    guia: { findUnique: jest.fn(), create: jest.fn() },
+    // findFirst se usa para rechazar nombres de guía repetidos; sin coincidencia por defecto.
+    guia: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
     grupoEmision: { create: jest.fn().mockResolvedValue({ id: 100 }) },
     correlativoTicket: {
       upsert: jest.fn(),
@@ -91,6 +93,7 @@ describe('TicketsService', () => {
   let prisma: any;
   let cajasService: any;
   let bitacoraService: any;
+  let recurrente: any;
 
   beforeEach(async () => {
     tx = crearTxMock();
@@ -106,6 +109,15 @@ describe('TicketsService', () => {
     };
     cajasService = { obtenerActual: jest.fn().mockResolvedValue({ id: 9 }) };
     bitacoraService = { registrar: jest.fn().mockResolvedValue({}) };
+    // Solo se invoca con formas de pago que no son efectivo.
+    recurrente = {
+      crearCheckout: jest.fn().mockResolvedValue({
+        id: 'ch_prueba',
+        status: 'unpaid',
+        checkout_url: 'https://app.recurrente.com/checkout-session/ch_prueba',
+      }),
+      consultarCheckout: jest.fn(),
+    };
 
     jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
 
@@ -115,6 +127,7 @@ describe('TicketsService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: CajasService, useValue: cajasService },
         { provide: BitacoraService, useValue: bitacoraService },
+        { provide: RecurrenteService, useValue: recurrente },
       ],
     }).compile();
 
@@ -188,6 +201,56 @@ describe('TicketsService', () => {
       tx.tarifa.findFirst.mockResolvedValue(null);
 
       await expect(service.emitir(dtoBase(), EJECUTOR)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('pago con tarjeta', () => {
+    const TARJETA = { id: 2, nombre: 'Tarjeta', esEfectivo: false, anulado: false };
+
+    beforeEach(() => {
+      tx.opcionPago.findUnique.mockResolvedValue(TARJETA);
+    });
+
+    it('genera el link de pago y deja el cobro PENDIENTE', async () => {
+      const res = await service.emitir(dtoBase({ idOpcionPago: TARJETA.id }), EJECUTOR);
+
+      const pago = tx.ticket.create.mock.calls[0][0].data.ticketPagos.create;
+      expect(pago.estadoPago).toBe('PENDIENTE');
+      expect(pago.idPagoPasarela).toBe('ch_prueba');
+      expect(pago.checkoutUrl).toContain('checkout-session');
+      expect(pago.fechaPago).toBeUndefined();
+      expect(res.tickets[0].estadoPago).toBe('Pago pendiente');
+    });
+
+    it('envía el monto a la pasarela en centavos', async () => {
+      await service.emitir(dtoBase({ idOpcionPago: TARJETA.id }), EJECUTOR);
+
+      // 2 adultos x Q20 = Q40 -> 4000 centavos
+      expect(recurrente.crearCheckout).toHaveBeenCalledWith(
+        expect.objectContaining({ montoEnCentavos: 4000 }),
+      );
+    });
+
+    it('no registra la venta si la pasarela falla', async () => {
+      recurrente.crearCheckout.mockRejectedValue(new Error('pasarela caída'));
+
+      await expect(
+        service.emitir(dtoBase({ idOpcionPago: TARJETA.id }), EJECUTOR),
+      ).rejects.toThrow();
+
+      expect(tx.ticket.create).not.toHaveBeenCalled();
+    });
+
+    it('el efectivo no toca la pasarela y queda PAGADO al instante', async () => {
+      tx.opcionPago.findUnique.mockResolvedValue(EFECTIVO);
+
+      const res = await service.emitir(dtoBase(), EJECUTOR);
+
+      expect(recurrente.crearCheckout).not.toHaveBeenCalled();
+      const pago = tx.ticket.create.mock.calls[0][0].data.ticketPagos.create;
+      expect(pago.estadoPago).toBe('PAGADO');
+      expect(pago.fechaPago).toBeDefined();
+      expect(res.tickets[0].estadoPago).toBe('PAGADO');
     });
   });
 
@@ -323,6 +386,20 @@ describe('TicketsService', () => {
       );
     });
 
+    it('rechaza con 409 un guía nuevo cuyo nombre ya existe', async () => {
+      tx.guia.findFirst.mockResolvedValue({ id: 99, nombre: 'Carlos Garcia', anulado: false });
+
+      await expect(
+        service.emitir(
+          dtoBase({ guia: { modo: 'nuevo', nombre: 'Carlos Garcia', tieneCarnet: false } }),
+          EJECUTOR,
+        ),
+      ).rejects.toThrow(ConflictException);
+
+      expect(tx.guia.create).not.toHaveBeenCalled();
+      expect(tx.ticket.create).not.toHaveBeenCalled();
+    });
+
     it('exige número de carnet cuando el guía nuevo dice tenerlo', async () => {
       await expect(
         service.emitir(
@@ -406,6 +483,34 @@ describe('TicketsService', () => {
       );
     });
 
+    // El QR existe desde que se genera el link: sin esto se entraría sin pagar.
+    it('rechaza el ingreso si el pago con tarjeta sigue pendiente', async () => {
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        fechaUso: null,
+        ticketPagos: [{ anulado: false, estadoPago: 'PENDIENTE' }],
+      });
+
+      await expect(service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(prisma.ticket.update).not.toHaveBeenCalled();
+    });
+
+    it('permite el ingreso cuando el pago ya fue confirmado', async () => {
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        fechaUso: null,
+        ticketPagos: [{ anulado: false, estadoPago: 'PAGADO' }],
+      });
+      prisma.ticket.update.mockResolvedValue({ id: 1, fechaUso: new Date() });
+
+      const res = await service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR);
+      expect(res.valido).toBe(true);
+    });
+
     it('rechaza el reingreso de un ticket ya usado', async () => {
       prisma.ticket.findUnique.mockResolvedValue({
         id: 1,
@@ -456,6 +561,60 @@ describe('TicketsService', () => {
       });
 
       await expect(service.anular(5, EJECUTOR)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('findOne y findAll', () => {
+    it('findOne retorna estadoPago: "Pago pendiente" si tiene pago no confirmado', async () => {
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 10,
+        numeroTicket: 'TCK-2026-000010',
+        qrFirma: 'firma10',
+        anulado: false,
+        ticketPagos: [{ anulado: false, estadoPago: 'PENDIENTE' }],
+      });
+
+      const res = await service.findOne(10);
+      expect(res.estadoPago).toBe('Pago pendiente');
+      expect(res.qr).toBeDefined();
+    });
+
+    it('findOne retorna estadoPago: "PAGADO" si el pago está confirmado', async () => {
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 10,
+        numeroTicket: 'TCK-2026-000010',
+        qrFirma: 'firma10',
+        anulado: false,
+        ticketPagos: [{ anulado: false, estadoPago: 'PAGADO' }],
+      });
+
+      const res = await service.findOne(10);
+      expect(res.estadoPago).toBe('PAGADO');
+    });
+
+    it('findAll mapea estadoPago en cada ticket', async () => {
+      prisma.ticket.findMany.mockResolvedValue([
+        {
+          id: 1,
+          numeroTicket: 'TCK-2026-000001',
+          qrFirma: 'firma1',
+          anulado: false,
+          ticketPagos: [{ anulado: false, estadoPago: 'PENDIENTE' }],
+        },
+        {
+          id: 2,
+          numeroTicket: 'TCK-2026-000002',
+          qrFirma: 'firma2',
+          anulado: false,
+          ticketPagos: [{ anulado: false, estadoPago: 'PAGADO' }],
+        },
+      ]);
+      prisma.ticket.count.mockResolvedValue(2);
+      prisma.ticket.aggregate.mockResolvedValue({ _sum: { montoTotal: 100, cantidadPersonas: 4 } });
+
+      const res = await service.findAll({});
+      expect(res.datos[0].estadoPago).toBe('Pago pendiente');
+      expect(res.datos[1].estadoPago).toBe('PAGADO');
     });
   });
 });

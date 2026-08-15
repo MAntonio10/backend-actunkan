@@ -19,6 +19,8 @@ import { PrismaService } from '../src/prisma/prisma.service';
  *  - Deja el estado de caja como lo encontró.
  */
 const PREFIJO = 'QA-TEST-';
+/** Único por corrida: el alta de guías rechaza nombres repetidos con 409. */
+const nombreGuiaPrueba = `${PREFIJO}Guia ${Date.now()}`;
 const ID_USUARIO_CON_PERMISOS = 3; // Manuel Castellanos
 const ID_USUARIO_SIN_PERMISOS = 5; // Javier Zepeda: solo Usuarios.Ver y Acciones.Ver
 
@@ -98,6 +100,12 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
         }
         await request(http).delete(`/cajas/${idCaja}`).set(auth(tokenOk));
       }
+
+      // El guía de prueba se da de baja para no ensuciar el selector real.
+      await prisma.guia.updateMany({
+        where: { nombre: nombreGuiaPrueba },
+        data: { anulado: true },
+      });
     } finally {
       await app.close();
     }
@@ -255,7 +263,7 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
           idTipoRecorrido: catalogos.tiposRecorrido[0].id,
           cantidades: [{ idTipoVisitante: buscarTipo('adulto'), cantidad: 1 }],
           idOpcionPago: efectivoId(),
-          guia: { modo: 'nuevo', nombre: `${PREFIJO}Guia`, tieneCarnet: false },
+          guia: { modo: 'nuevo', nombre: nombreGuiaPrueba, tieneCarnet: false },
         })
         .expect(201);
 
@@ -264,6 +272,24 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
       expect(Number(res.body.montoGuia)).toBe(15);
       expect(Number(res.body.montoTotalGeneral)).toBe(35); // 20 + 15
       res.body.tickets.forEach((t: any) => ticketsCreados.push(t.id));
+    });
+
+    // Sin esta regla, cada captura repetida creaba otro guía y el selector se
+    // llenaba de duplicados.
+    it('rechaza dar de alta un guía cuyo nombre ya existe (409)', async () => {
+      await request(http)
+        .post('/tickets/emitir')
+        .set(auth(tokenOk))
+        .send({
+          nombreGrupo: `${PREFIJO}Guia repetido`,
+          idAtraccion: buscarAtraccion(),
+          idOrigen: buscarOrigen('nacional'),
+          idTipoRecorrido: catalogos.tiposRecorrido[0].id,
+          cantidades: [{ idTipoVisitante: buscarTipo('adulto'), cantidad: 1 }],
+          idOpcionPago: efectivoId(),
+          guia: { modo: 'nuevo', nombre: nombreGuiaPrueba, tieneCarnet: false },
+        })
+        .expect(409);
     });
 
     it('exige país cuando el origen es extranjero (400)', async () => {
