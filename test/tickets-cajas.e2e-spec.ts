@@ -32,7 +32,7 @@ const PAYLOADS_XSS = [
 
 const PAYLOADS_SQLI = ["' OR 1=1--", "'; DROP TABLE Usuario;--", '1 UNION SELECT null--'];
 
-describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
+describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let http: any;
@@ -44,8 +44,8 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
   let idCaja: number;
   let catalogos: any;
   const ticketsCreados: number[] = [];
-  const gastosCreados: number[] = [];
-  let tipoGastoId: number;
+  const donacionesCreadas: number[] = [];
+
 
   const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -95,8 +95,8 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
         for (const id of ticketsCreados) {
           await request(http).delete(`/tickets/${id}`).set(auth(tokenOk));
         }
-        for (const id of gastosCreados) {
-          await request(http).delete(`/gastos/${id}`).set(auth(tokenOk));
+        for (const id of donacionesCreadas) {
+          await request(http).delete(`/donaciones/${id}`).set(auth(tokenOk));
         }
         await request(http).delete(`/cajas/${idCaja}`).set(auth(tokenOk));
       }
@@ -114,7 +114,7 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
   describe('Fase 1 — protección de rutas', () => {
     const rutas = [
       ['get', '/cajas'],
-      ['get', '/gastos'],
+      ['get', '/donaciones'],
       ['get', '/tickets'],
       ['get', '/tickets/catalogos'],
       ['get', '/tarifas'],
@@ -351,35 +351,29 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
       // 70 (familia) + 20 (con guía) + 15 (guía) + 0 (menores) = 105
       expect(res.body.ventasEfectivo).toBe(105);
       expect(res.body.montoInicial).toBe(500);
-      expect(res.body.totalGastos).toBe(0);
+      expect(res.body.totalDonaciones).toBe(0);
       expect(res.body.montoEsperado).toBe(605);
     });
 
-    it('registra un gasto y el arqueo lo descuenta', async () => {
-      const tg = await request(http)
-        .post('/tipos-gasto')
+    // Sin contarlas, cada donación saldría como sobrante al cerrar.
+    it('registra una donación y el arqueo la suma', async () => {
+      const donacion = await request(http)
+        .post('/donaciones')
         .set(auth(tokenOk))
-        .send({ nombre: `${PREFIJO}Insumos ${Date.now()}` })
+        .send({ monto: 55, nombreDonante: `${PREFIJO}Donante` })
         .expect(201);
-      tipoGastoId = tg.body.id;
+      donacionesCreadas.push(donacion.body.id);
 
-      const gasto = await request(http)
-        .post('/gastos')
-        .set(auth(tokenOk))
-        .send({ idTipoGasto: tipoGastoId, descripcion: `${PREFIJO}compra`, monto: 55 })
-        .expect(201);
-      gastosCreados.push(gasto.body.id);
-
-      expect(gasto.body.idAperturaCaja).toBe(idCaja);
-      expect(gasto.body.idUsuario).toBe(ID_USUARIO_CON_PERMISOS);
+      expect(donacion.body.idAperturaCaja).toBe(idCaja);
+      expect(donacion.body.numeroRecibo).toMatch(/^DON-\d{4}-\d{6}$/);
 
       const arqueo = await request(http)
         .get(`/cajas/${idCaja}/arqueo`)
         .set(auth(tokenOk))
         .expect(200);
 
-      expect(arqueo.body.totalGastos).toBe(55);
-      expect(arqueo.body.montoEsperado).toBe(550); // 500 + 105 - 55
+      expect(arqueo.body.totalDonaciones).toBe(55);
+      expect(arqueo.body.montoEsperado).toBe(660); // 500 + 105 + 55
     });
 
     it('anular un ticket lo saca del arqueo', async () => {
@@ -391,11 +385,21 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
         .get(`/cajas/${idCaja}/arqueo`)
         .set(auth(tokenOk))
         .expect(200);
-      expect(arqueo.body.montoEsperado).toBe(550);
+      expect(arqueo.body.montoEsperado).toBe(660);
 
       // Y anularlo dos veces se rechaza.
       await request(http).delete(`/tickets/${idMenores}`).set(auth(tokenOk)).expect(400);
       ticketsCreados.pop();
+    });
+
+    // Anularla dejaría los tickets ya vendidos fuera de todo arqueo.
+    it('no permite anular la apertura si la caja ya tiene movimientos (400)', async () => {
+      const res = await request(http)
+        .delete(`/cajas/${idCaja}`)
+        .set(auth(tokenOk))
+        .expect(400);
+
+      expect(res.body.message).toMatch(/ticket|donaci/i);
     });
 
     it('el historial agrega métricas en el servidor', async () => {
@@ -466,13 +470,14 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
   describe('Fase 5 — seguridad', () => {
     it.each(PAYLOADS_SQLI)('trata %s como texto literal, sin 500', async (payload) => {
       const res = await request(http)
-        .post('/tipos-gasto')
+        .post('/donaciones')
         .set(auth(tokenOk))
-        .send({ nombre: `${PREFIJO}${payload}` });
+        .send({ monto: 1, nombreDonante: `${PREFIJO}${payload}` });
 
       expect([201, 400, 409]).toContain(res.status);
       if (res.status === 201) {
-        expect(res.body.nombre).toBe(`${PREFIJO}${payload}`);
+        expect(res.body.nombreDonante).toBe(`${PREFIJO}${payload}`);
+        donacionesCreadas.push(res.body.id);
       }
     });
 
@@ -482,12 +487,13 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
 
     it.each(PAYLOADS_XSS)('devuelve %s como JSON, no HTML', async (payload) => {
       const res = await request(http)
-        .post('/tipos-gasto')
+        .post('/donaciones')
         .set(auth(tokenOk))
-        .send({ nombre: `${PREFIJO}${payload}` });
+        .send({ monto: 1, nombreDonante: `${PREFIJO}${payload}` });
 
       expect(res.headers['content-type']).toMatch(/application\/json/);
       expect(res.status).not.toBe(500);
+      if (res.status === 201) donacionesCreadas.push(res.body.id);
     });
 
     it('rechaza campos no declarados en el DTO (400)', async () => {
@@ -500,9 +506,9 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
 
     it('rechaza montos negativos (400)', async () => {
       await request(http)
-        .post('/gastos')
+        .post('/donaciones')
         .set(auth(tokenOk))
-        .send({ idTipoGasto: tipoGastoId, descripcion: 'neg', monto: -50 })
+        .send({ monto: -50 })
         .expect(400);
     });
 
@@ -569,8 +575,8 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
       for (const id of ticketsCreados) {
         await request(http).delete(`/tickets/${id}`).set(auth(tokenOk));
       }
-      for (const id of gastosCreados) {
-        await request(http).delete(`/gastos/${id}`).set(auth(tokenOk));
+      for (const id of donacionesCreadas) {
+        await request(http).delete(`/donaciones/${id}`).set(auth(tokenOk));
       }
 
       const arqueo = await request(http)
@@ -580,7 +586,7 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
 
       // Todo anulado: vuelve al monto inicial.
       expect(arqueo.body.ventasEfectivo).toBe(0);
-      expect(arqueo.body.totalGastos).toBe(0);
+      expect(arqueo.body.totalDonaciones).toBe(0);
       expect(arqueo.body.montoEsperado).toBe(500);
 
       const cierre = await request(http)
@@ -591,7 +597,7 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
 
       expect(Number(cierre.body.cierre.diferencia)).toBe(-10); // faltante
       ticketsCreados.length = 0;
-      gastosCreados.length = 0;
+      donacionesCreadas.length = 0;
     });
 
     it('impide un segundo cierre (400)', async () => {
@@ -606,11 +612,11 @@ describe('Circuito de dinero: Cajas + Tickets + Gastos (e2e)', () => {
       await request(http).delete(`/cajas/${idCaja}`).set(auth(tokenOk)).expect(400);
     });
 
-    it('no permite registrar gastos con la caja cerrada (400)', async () => {
+    it('no permite registrar donaciones con la caja cerrada (400)', async () => {
       await request(http)
-        .post('/gastos')
+        .post('/donaciones')
         .set(auth(tokenOk))
-        .send({ idTipoGasto: tipoGastoId, descripcion: 'tarde', monto: 10 })
+        .send({ monto: 10, nombreDonante: `${PREFIJO}tarde` })
         .expect(400);
     });
 

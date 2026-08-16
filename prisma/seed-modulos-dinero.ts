@@ -1,10 +1,9 @@
 /**
- * Registra el módulo general 'Cajas' y su sub-módulo 'Gastos', y los vincula con
- * las acciones del catálogo. Sin esto, PermissionsGuard responde 403 a todos.
+ * Registra el módulo 'Cajas' y lo vincula con las acciones del catálogo.
+ * Sin esto, PermissionsGuard responde 403 a todos.
  *
- * 'TiposGasto' ya no es un módulo de permiso propio: el catálogo de tipos de gasto
- * queda dentro del sub-módulo 'Gastos' (ver prisma/reorganizar-modulos.ts, que
- * además enlaza 'Gastos' como hijo de 'Cajas').
+ * La acción 'Editar' de 'Cajas' representa **supervisión**: ver el arqueo,
+ * el historial de cierres y anular un cierre.
  *
  * Idempotente y estrictamente aditivo: no borra ni reasigna permisos de usuarios.
  * Uso: npx ts-node prisma/seed-modulos-dinero.ts
@@ -12,7 +11,7 @@
 import { PrismaClient } from '@prisma/client';
 
 const ACCIONES = ['Ver', 'Crear', 'Editar', 'Anular'];
-const MODULOS = ['Cajas', 'Gastos'];
+const MODULOS = ['Cajas'];
 
 async function main() {
   const prisma = new PrismaClient();

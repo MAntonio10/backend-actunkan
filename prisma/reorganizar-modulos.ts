@@ -5,8 +5,8 @@
  *   Emision de Tickets -> un único módulo 'EmisionTickets'. Atracciones, guías,
  *   tarifas, países, tipos y opciones de pago NO son módulos aparte: son parte de él.
  *
- *   Cajas -> módulo general, con 'Gastos' como sub-módulo (permisos propios:
- *   Ver/Crear/Editar/Anular gastos, siempre sobre una caja abierta y no anulada).
+ *   Cajas -> módulo general. Su acción 'Editar' representa supervisión:
+ *   ver el arqueo, el historial de cierres y anular un cierre.
  *
  * Nunca borra filas: los módulos que dejan de usarse se marcan `anulado = true`,
  * conservando su historial y sus vínculos módulo-acción.
@@ -28,9 +28,6 @@ const ABSORBIDOS_POR_EMISION = [
   'Guias',
   'Tarifas',
 ];
-
-/** Módulos que se absorbieron dentro del sub-módulo 'Gastos'. */
-const ABSORBIDOS_POR_GASTOS = ['TiposGasto'];
 
 const ACCIONES = ['Ver', 'Crear', 'Editar', 'Anular'];
 
@@ -174,18 +171,10 @@ async function main() {
     await anularAbsorbido(nombre, 'EmisionTickets');
   }
 
-  // --- 2. Cajas (general) con 'Gastos' como sub-módulo ---
+  // --- 2. Cajas ---
   const moduloCajas = await asegurarModulo('Cajas');
   console.log(`Módulo general 'Cajas' -> id ${moduloCajas.id}`);
   await vincularAcciones(moduloCajas.id, 'Cajas');
-
-  const moduloGastos = await asegurarModulo('Gastos', moduloCajas.id);
-  console.log(`Sub-módulo 'Gastos' -> id ${moduloGastos.id} (padre: Cajas)`);
-  await vincularAcciones(moduloGastos.id, 'Gastos');
-
-  for (const nombre of ABSORBIDOS_POR_GASTOS) {
-    await anularAbsorbido(nombre, 'Gastos');
-  }
 
   // --- Resumen ---
   const modulos = await prisma.modulo.findMany({

@@ -20,7 +20,6 @@ const INCLUDE_DETALLE = {
   usuario: { select: { id: true, nombre: true, correo: true } },
   estado: true,
   cierresCaja: { orderBy: { fechaCierre: 'desc' as const } },
-  gastos: { where: { anulado: false }, include: { tipoGasto: true } },
 };
 
 @Injectable()
@@ -104,11 +103,11 @@ export class CajasService {
   }
 
   /**
-   * Calcula el arqueo esperado de una apertura: monto inicial + ventas en efectivo - gastos.
+   * Arqueo esperado de una apertura: monto inicial + ventas en efectivo + donaciones.
    * Toda la aritmética usa Decimal: con dinero, los flotantes de JS no son exactos.
    */
   private async calcularArqueo(client: any, idApertura: number, montoInicial: any) {
-    const [ventas, gastos] = await Promise.all([
+    const [ventas, donaciones] = await Promise.all([
       client.ticketPago.aggregate({
         _sum: { monto: true },
         where: {
@@ -120,17 +119,21 @@ export class CajasService {
           tickets: { idAperturaCaja: idApertura, anulado: false },
         },
       }),
-      client.gastos.aggregate({
+      // Las donaciones son efectivo que entra al mismo cajón: si no se contaran,
+      // cada donación aparecería como sobrante al cerrar.
+      client.donacion.aggregate({
         _sum: { monto: true },
         where: { idAperturaCaja: idApertura, anulado: false },
       }),
     ]);
 
     const ventasEfectivo = new Prisma.Decimal(ventas._sum.monto ?? 0);
-    const totalGastos = new Prisma.Decimal(gastos._sum.monto ?? 0);
-    const montoEsperado = new Prisma.Decimal(montoInicial).plus(ventasEfectivo).minus(totalGastos);
+    const totalDonaciones = new Prisma.Decimal(donaciones._sum.monto ?? 0);
+    const montoEsperado = new Prisma.Decimal(montoInicial)
+      .plus(ventasEfectivo)
+      .plus(totalDonaciones);
 
-    return { ventasEfectivo, totalGastos, montoEsperado };
+    return { ventasEfectivo, totalDonaciones, montoEsperado };
   }
 
   async abrirCaja(dto: AbrirCajaDto, ejecutor?: EjecutorInfo) {
@@ -213,7 +216,7 @@ export class CajasService {
 
   /**
    * `idUsuario` decide si la respuesta incluye las cifras del arqueo. Se omite en
-   * las llamadas internas (emisión de tickets, gastos), que no exponen nada.
+   * las llamadas internas (emisión de tickets, donaciones), que no exponen nada.
    */
   async findOne(id: number, idUsuario?: number) {
     const apertura = await this.prisma.aperturaCaja.findUnique({
@@ -289,7 +292,7 @@ export class CajasService {
 
   async arqueo(id: number) {
     const apertura = await this.findOne(id);
-    const { ventasEfectivo, totalGastos, montoEsperado } = await this.calcularArqueo(
+    const { ventasEfectivo, totalDonaciones, montoEsperado } = await this.calcularArqueo(
       this.prisma,
       apertura.id,
       apertura.montoInicial,
@@ -299,7 +302,7 @@ export class CajasService {
       idApertura: apertura.id,
       montoInicial: Number(apertura.montoInicial),
       ventasEfectivo: ventasEfectivo.toNumber(),
-      totalGastos: totalGastos.toNumber(),
+      totalDonaciones: totalDonaciones.toNumber(),
       montoEsperado: montoEsperado.toNumber(),
     };
   }
@@ -324,7 +327,7 @@ export class CajasService {
         throw new BadRequestException('La caja ya se encuentra cerrada o anulada.');
       }
 
-      const { ventasEfectivo, totalGastos, montoEsperado } = await this.calcularArqueo(
+      const { ventasEfectivo, montoEsperado } = await this.calcularArqueo(
         tx,
         apertura.id,
         apertura.montoInicial,
@@ -441,6 +444,28 @@ export class CajasService {
       if (apertura.estado.nombre !== ESTADO_ABIERTA) {
         throw new BadRequestException(
           'Solo se puede anular una apertura mientras se encuentra abierta. Anule primero el cierre vigente.',
+        );
+      }
+
+      // Anular una caja con movimientos dejaría esos tickets y donaciones apuntando
+      // a una apertura anulada: dinero cobrado que no pertenecería a ningún arqueo.
+      // Para ese caso la salida correcta es cerrarla, no anularla.
+      const [tickets, donaciones] = await Promise.all([
+        tx.ticket.count({ where: { idAperturaCaja: id, anulado: false } }),
+        tx.donacion.count({ where: { idAperturaCaja: id, anulado: false } }),
+      ]);
+
+      if (tickets > 0 || donaciones > 0) {
+        const detalle = [
+          tickets > 0 ? `${tickets} ticket(s)` : null,
+          donaciones > 0 ? `${donaciones} donación(es)` : null,
+        ]
+          .filter(Boolean)
+          .join(' y ');
+
+        throw new BadRequestException(
+          `No se puede anular la apertura: la caja ya tiene ${detalle} registrados. ` +
+            'Ciérrela en lugar de anularla, o anule primero esos movimientos.',
         );
       }
 

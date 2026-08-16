@@ -11,6 +11,7 @@ import { BitacoraService } from '../bitacora/bitacora.service';
 import { CajasService } from '../cajas/cajas.service';
 import { EjecutorInfo } from '../common/utils/ejecutor.util';
 import { getFechaUTC6 } from '../common/utils/date.util';
+import { generarCorrelativo } from '../common/utils/correlativo.util';
 import { construirPayloadQr, firmarNumeroTicket, verificarFirmaTicket } from '../common/utils/qr.util';
 import { GuiasService } from '../guias/guias.service';
 import { RecurrenteService } from '../pagos/recurrente.service';
@@ -80,15 +81,7 @@ export class TicketsService {
    * siempre texto: la serie es alfanumérica y configurable (TICKET_SERIE).
    */
   private async generarNumeroTicket(tx: any, anio: number): Promise<string> {
-    const serie = (process.env.TICKET_SERIE || 'TCK').toUpperCase();
-
-    const correlativo = await tx.correlativoTicket.upsert({
-      where: { serie_anio: { serie, anio } },
-      create: { serie, anio, ultimoNumero: 1 },
-      update: { ultimoNumero: { increment: 1 } },
-    });
-
-    return `${serie}-${anio}-${String(correlativo.ultimoNumero).padStart(6, '0')}`;
+    return generarCorrelativo(tx, process.env.TICKET_SERIE || 'TCK', anio);
   }
 
   /** Resuelve la tarifa vigente en servidor. El cliente nunca envía precios. */

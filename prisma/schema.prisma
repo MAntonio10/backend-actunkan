@@ -49,9 +49,9 @@ model Usuario {
   codigoRestablecimiento String?           @db.NVarChar(10)
   expiracionCodigo       DateTime?         @db.DateTime2
   aperturasCaja        AperturaCaja[]
-  gastos               Gastos[]
   tickets              Ticket[]
   gruposEmision        GrupoEmision[]
+  donaciones           Donacion[]
   sesiones             SesionRefresh[]
   permiso              Permisos[]
   puesto               Puestos             @relation(fields: [idPuesto], references: [id])
@@ -73,7 +73,7 @@ model Modulo {
   esAsignable Boolean @default(true)
 
   /// Un módulo general puede agrupar sub-módulos con permisos propios
-  /// (ej. 'Gastos' es sub-módulo de 'Cajas'). Null = módulo general.
+  /// Null = módulo general.
   idModuloPadre Int?
   moduloPadre   Modulo?  @relation("SubModulos", fields: [idModuloPadre], references: [id], onDelete: NoAction, onUpdate: NoAction)
   subModulos    Modulo[] @relation("SubModulos")
@@ -294,15 +294,45 @@ model TarifaGuia {
   fechaActualizacion DateTime? @db.DateTime2
 }
 
-/// Contador atómico del folio. Solo el consecutivo es numérico:
-/// el folio que se persiste (Ticket.numeroTicket) es la cadena ya compuesta.
-model CorrelativoTicket {
+/// Contador atómico de folios, compartido por documentos con numeración propia:
+/// tickets (`TCK`) y recibos de donación (`DON`). Cada serie lleva su contador por año.
+///
+/// Solo el consecutivo es numérico; el folio que se persiste es la cadena compuesta.
+/// Conserva el nombre de tabla original para no perder los contadores existentes.
+model Correlativo {
   id           Int    @id @default(autoincrement())
   serie        String @db.NVarChar(10)
   anio         Int
   ultimoNumero Int    @default(0)
 
   @@unique([serie, anio])
+  @@map("CorrelativoTicket")
+}
+
+/// Donación recibida en ventanilla. Solo efectivo, y entra a la caja abierta:
+/// por eso suma al arqueo igual que una venta.
+///
+/// El recibo que se entrega es **no contable**: no tiene validez fiscal.
+model Donacion {
+  id                 Int          @id @default(autoincrement())
+  /// Folio correlativo del recibo, ej. `DON-2026-000001`. Siempre texto.
+  numeroRecibo       String       @unique @db.NVarChar(30)
+  idAperturaCaja     Int
+  idUsuario          Int
+  /// Opcional: se admiten donaciones anónimas.
+  nombreDonante      String?      @db.NVarChar(255)
+  monto              Decimal      @db.Decimal(18, 4)
+  observaciones      String?      @db.NVarChar(Max)
+  fechaCreacion      DateTime     @db.DateTime2
+  fechaActualizacion DateTime?    @db.DateTime2
+  anulado            Boolean      @default(false)
+  motivoAnulacion    String?      @db.NVarChar(255)
+
+  aperturaCaja AperturaCaja @relation(fields: [idAperturaCaja], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuario      Usuario      @relation(fields: [idUsuario], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([fechaCreacion])
+  @@index([idAperturaCaja])
 }
 
 model OpcionPago {
@@ -349,9 +379,9 @@ model AperturaCaja {
   anulado            Boolean      @default(false)
   usuario            Usuario        @relation(fields: [idUsuario], references: [id])
   cierresCaja        CierreCaja[]
-  gastos             Gastos[]
   tickets            Ticket[]
   gruposEmision      GrupoEmision[]
+  donaciones         Donacion[]
   estado             EstadoCaja     @relation(fields: [idEstado], references: [id])
 }
 
@@ -359,28 +389,6 @@ model EstadoCaja {
   id       Int            @id @default(autoincrement())
   nombre   String         @db.NVarChar(255)
   apertura AperturaCaja[]
-}
-
-model Gastos {
-  id                 Int           @id @default(autoincrement())
-  idTipoGasto        Int
-  idAperturaCaja     Int?
-  idUsuario          Int?
-  descripcion        String        @db.NVarChar(255)
-  monto              Decimal       @db.Decimal(18, 4)
-  fechaCreacion      DateTime      @db.DateTime2
-  fechaActualizacion DateTime?     @db.DateTime2
-  anulado            Boolean       @default(false)
-  aperturaCaja       AperturaCaja? @relation(fields: [idAperturaCaja], references: [id])
-  tipoGasto          TipoGasto     @relation(fields: [idTipoGasto], references: [id])
-  usuario            Usuario?      @relation(fields: [idUsuario], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
-
-model TipoGasto {
-  id      Int      @id @default(autoincrement())
-  nombre  String   @db.NVarChar(255)
-  anulado Boolean  @default(false)
-  gastos  Gastos[]
 }
 
 model CierreCaja {

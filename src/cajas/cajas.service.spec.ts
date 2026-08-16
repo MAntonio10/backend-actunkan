@@ -21,8 +21,13 @@ const crearTxMock = () => ({
       ),
     ),
   },
-  gastos: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
   ticketPago: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
+  // Las donaciones en efectivo entran al mismo cajón y suman al arqueo.
+  donacion: {
+    aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }),
+    count: jest.fn().mockResolvedValue(0),
+  },
+  ticket: { count: jest.fn().mockResolvedValue(0) },
   usuario: { findUnique: jest.fn().mockResolvedValue({ id: 1, nombre: 'QA Tester' }) },
 });
 
@@ -36,8 +41,8 @@ describe('CajasService', () => {
     prisma = {
       $transaction: jest.fn((cb: any) => cb(tx)),
       aperturaCaja: { findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
-      gastos: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
       ticketPago: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
+      donacion: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
       // Decide si la respuesta revela el arqueo. Por defecto: supervisor.
       permisos: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) },
     };
@@ -104,23 +109,46 @@ describe('CajasService', () => {
       tx.aperturaCaja.update.mockResolvedValue({ id: 1 });
     };
 
-    it('calcula montoEsperado = inicial + ventas efectivo - gastos', async () => {
+    it('calcula montoEsperado = inicial + ventas efectivo + donaciones', async () => {
       prepararCajaAbierta(500);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
-      tx.gastos.aggregate.mockResolvedValue({ _sum: { monto: 150 } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 1600 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(1, { montoContado: 1750 }, EJECUTOR);
 
-      expect(cierre.montoEsperado!.toNumber()).toBe(1600);
+      // 500 + 1250 = 1750
+      expect(cierre.montoEsperado!.toNumber()).toBe(1750);
       expect(cierre.diferencia!.toNumber()).toBe(0);
+    });
+
+    // Sin contarlas, cada donación aparecería como sobrante al cerrar.
+    it('suma las donaciones en efectivo al monto esperado', async () => {
+      prepararCajaAbierta(500);
+      tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
+      tx.donacion.aggregate.mockResolvedValue({ _sum: { monto: 200 } });
+
+      const { cierre } = await service.cerrarCaja(1, { montoContado: 1950 }, EJECUTOR);
+
+      // 500 + 1250 + 200 = 1950
+      expect(cierre.montoEsperado!.toNumber()).toBe(1950);
+      expect(cierre.diferencia!.toNumber()).toBe(0);
+    });
+
+    it('ignora las donaciones anuladas', async () => {
+      prepararCajaAbierta(500);
+      await service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR);
+
+      expect(tx.donacion.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ idAperturaCaja: 1, anulado: false }),
+        }),
+      );
     });
 
     it('reporta faltante cuando lo contado es menor a lo esperado', async () => {
       prepararCajaAbierta(500);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
-      tx.gastos.aggregate.mockResolvedValue({ _sum: { monto: 150 } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 1590 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(1, { montoContado: 1740 }, EJECUTOR);
 
       expect(cierre.diferencia!.toNumber()).toBe(-10);
     });
@@ -128,17 +156,15 @@ describe('CajasService', () => {
     it('reporta sobrante cuando lo contado es mayor a lo esperado', async () => {
       prepararCajaAbierta(500);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 0 } });
-      tx.gastos.aggregate.mockResolvedValue({ _sum: { monto: 0 } });
 
       const { cierre } = await service.cerrarCaja(1, { montoContado: 520 }, EJECUTOR);
 
       expect(cierre.diferencia!.toNumber()).toBe(20);
     });
 
-    it('trata sumas nulas (sin ventas ni gastos) como 0', async () => {
+    it('trata sumas nulas (sin ventas ni donaciones) como 0', async () => {
       prepararCajaAbierta(300);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: null } });
-      tx.gastos.aggregate.mockResolvedValue({ _sum: { monto: null } });
 
       const { cierre } = await service.cerrarCaja(1, { montoContado: 300 }, EJECUTOR);
 
@@ -149,7 +175,6 @@ describe('CajasService', () => {
     it('mantiene exactitud decimal en el arqueo (sin error de punto flotante)', async () => {
       prepararCajaAbierta(0.1);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 0.2 } });
-      tx.gastos.aggregate.mockResolvedValue({ _sum: { monto: 0 } });
 
       const { cierre } = await service.cerrarCaja(1, { montoContado: 0.3 }, EJECUTOR);
 
@@ -178,25 +203,23 @@ describe('CajasService', () => {
       prisma.permisos.findFirst.mockResolvedValue(null); // sin Cajas.Editar
       prepararCajaAbierta(500);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
-      tx.gastos.aggregate.mockResolvedValue({ _sum: { monto: 150 } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 1590 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(1, { montoContado: 1740 }, EJECUTOR);
 
       expect(cierre.montoEsperado).toBeUndefined();
       expect(cierre.diferencia).toBeUndefined();
       // Lo que el cajero sí debe ver: lo que él contó.
-      expect(Number(cierre.montoFinal)).toBe(1590);
+      expect(Number(cierre.montoFinal)).toBe(1740);
     });
 
     it('sí los revela a quien supervisa', async () => {
       prisma.permisos.findFirst.mockResolvedValue({ id: 1 }); // con Cajas.Editar
       prepararCajaAbierta(500);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
-      tx.gastos.aggregate.mockResolvedValue({ _sum: { monto: 150 } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 1590 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(1, { montoContado: 1740 }, EJECUTOR);
 
-      expect(cierre.montoEsperado!.toNumber()).toBe(1600);
+      expect(cierre.montoEsperado!.toNumber()).toBe(1750);
       expect(cierre.diferencia!.toNumber()).toBe(-10);
     });
 
@@ -204,13 +227,12 @@ describe('CajasService', () => {
       prisma.permisos.findFirst.mockResolvedValue(null);
       prepararCajaAbierta(500);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
-      tx.gastos.aggregate.mockResolvedValue({ _sum: { monto: 150 } });
 
-      await service.cerrarCaja(1, { montoContado: 1590 }, EJECUTOR);
+      await service.cerrarCaja(1, { montoContado: 1740 }, EJECUTOR);
 
       // Ocultarlo es solo de cara al cliente: el dato queda registrado.
       const guardado = tx.cierreCaja.create.mock.calls[0][0].data;
-      expect(guardado.montoEsperado.toNumber()).toBe(1600);
+      expect(guardado.montoEsperado.toNumber()).toBe(1750);
       expect(guardado.diferencia.toNumber()).toBe(-10);
     });
 
@@ -296,6 +318,49 @@ describe('CajasService', () => {
         expect.objectContaining({ data: expect.objectContaining({ anulado: true }) }),
       );
       expect((tx.aperturaCaja as any).delete).toBeUndefined();
+    });
+
+    // Anularla dejaría esas ventas apuntando a una caja que no existe para el sistema.
+    it('rechaza anular una apertura que ya tiene tickets', async () => {
+      tx.aperturaCaja.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        estado: { nombre: 'Abierta' },
+      });
+      tx.ticket.count.mockResolvedValue(3);
+
+      await expect(service.anularApertura(1, EJECUTOR)).rejects.toThrow(BadRequestException);
+      expect(tx.aperturaCaja.update).not.toHaveBeenCalled();
+    });
+
+    it('rechaza anular una apertura que ya tiene donaciones', async () => {
+      tx.aperturaCaja.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        estado: { nombre: 'Abierta' },
+      });
+      tx.donacion.count.mockResolvedValue(1);
+
+      await expect(service.anularApertura(1, EJECUTOR)).rejects.toThrow(BadRequestException);
+      expect(tx.aperturaCaja.update).not.toHaveBeenCalled();
+    });
+
+    // Los movimientos anulados ya salieron del arqueo, así que no bloquean.
+    it('permite anular si los movimientos existentes están anulados', async () => {
+      tx.aperturaCaja.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        estado: { nombre: 'Abierta' },
+      });
+      tx.aperturaCaja.update.mockResolvedValue({ id: 1, anulado: true });
+
+      await service.anularApertura(1, EJECUTOR);
+
+      // El conteo filtra por anulado: false; si no hay activos, la anulación procede.
+      expect(tx.ticket.count).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { idAperturaCaja: 1, anulado: false } }),
+      );
+      expect(tx.aperturaCaja.update).toHaveBeenCalled();
     });
 
     it('rechaza anular una apertura ya cerrada', async () => {

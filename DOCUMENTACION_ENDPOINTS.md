@@ -171,6 +171,7 @@ La supervisión se representa con **`Cajas.Editar`**, una acción que quedó lib
 12. [Tarifas (`/tarifas`)](#12-tarifas-tarifas)
 13. [Catálogos de Tickets (`GET /tickets/catalogos`)](#13-catálogos-de-tickets--get-ticketscatalogos)
 14. [Guías (`/guias`)](#14-guías-guias)
+15. [Donaciones (`/donaciones`)](#15-donaciones-donaciones)
 
 ---
 
@@ -1715,4 +1716,135 @@ Reglas:
 - **`numeroCarnet` es obligatorio si `tieneCarnet: true`** (`400` en caso contrario). Al poner `tieneCarnet: false` el número se limpia automáticamente.
 - **`/activar` existe porque no hay alta independiente**: sin él, un guía anulado por error quedaría irrecuperable desde la API.
 - El **número de carnet nunca se imprime en el pase**, solo se guarda internamente.
+
+---
+
+## 15. Donaciones (`/donaciones`)
+
+Registro de donaciones recibidas en ventanilla. **Solo se aceptan en efectivo** y se entrega un **recibo no contable** en PDF con folio correlativo.
+
+Reglas del módulo:
+
+- **Exige caja abierta.** La donación es efectivo que entra al mismo cajón que las ventas, así que **suma al arqueo**. Sin esta regla, cada donación aparecería como sobrante al cerrar la caja.
+- **El recibo no se edita, solo se anula.** Igual que los tickets: un documento entregado es inmutable. Por eso el módulo no usa la acción `'Editar'`.
+- **Anular exige que la caja de origen siga abierta**, porque hacerlo después del cierre alteraría de forma retroactiva un arqueo ya guardado.
+- **El donante puede ser anónimo**: solo el monto es obligatorio.
+
+**Permisos:** módulo `Donaciones` con las acciones `Ver`, `Crear` y `Anular`. Registrar con `npx ts-node prisma/seed-donaciones.ts`.
+
+---
+
+### 15.1 `POST /donaciones` (Registrar donación)
+* **Permiso requerido:** `Módulo: 'Donaciones'`, `Acción: 'Crear'`
+* **Request Body (JSON):**
+```json
+{
+  "monto": 250.50,
+  "nombreDonante": "Fundación Verde",
+  "observaciones": "Aporte para conservación"
+}
+```
+> Solo `monto` es obligatorio. Sin `nombreDonante`, el recibo sale a nombre de **"Donante anónimo"**.
+
+* **Response (201 Created - JSON):**
+```json
+{
+  "id": 30,
+  "numeroRecibo": "DON-2026-000001",
+  "idAperturaCaja": 16,
+  "idUsuario": 3,
+  "nombreDonante": "Fundación Verde",
+  "monto": "250.5000",
+  "observaciones": "Aporte para conservación",
+  "anulado": false,
+  "motivoAnulacion": null,
+  "fechaCreacion": "2026-08-15T20:10:00.000Z",
+  "fechaActualizacion": "2026-08-15T20:10:00.000Z",
+  "usuario": { "id": 3, "nombre": "Jose Sandoval", "correo": "..." },
+  "aperturaCaja": { "id": 16, "fechaCreacion": "2026-08-15T18:00:00.000Z" }
+}
+```
+> Falla con `400` si no hay caja abierta o si se cerró durante la operación.
+
+**Folio:** serie propia `DON`, con su contador por año, independiente de la numeración de tickets. Es **siempre texto** (`DON-2026-000001`), así que los listados se ordenan por fecha, nunca por folio.
+
+---
+
+### 15.2 `GET /donaciones` (Listado de recibos)
+* **Permiso requerido:** `Módulo: 'Donaciones'`, `Acción: 'Ver'`
+* **Query Params (todos opcionales):** `buscar` (folio o nombre del donante), `idUsuario`, `idAperturaCaja`, `fechaInicio`, `fechaFin`, `incluirAnulados=true`, `pagina` (default 1), `limite` (default 50, máx. 200)
+* **Response (200 OK - JSON):** Las métricas se agregan en el servidor sobre el filtro aplicado.
+```json
+{
+  "datos": [ /* recibos con la misma forma que 15.1 */ ],
+  "total": 2,
+  "pagina": 1,
+  "limite": 50,
+  "metricas": {
+    "totalRecibos": 2,
+    "montoRecaudado": "300.5000"
+  }
+}
+```
+
+---
+
+### 15.3 `GET /donaciones/:id` (Detalle del recibo)
+* **Permiso requerido:** `Módulo: 'Donaciones'`, `Acción: 'Ver'`
+* **Response (200 OK - JSON):** Igual que 15.1. Devuelve `404` si no existe.
+
+---
+
+### 15.4 `GET /donaciones/:id/pdf` (Recibo imprimible)
+* **Permiso requerido:** `Módulo: 'Donaciones'`, `Acción: 'Ver'`
+* **Response:** `application/pdf`, con `Content-Disposition: inline; filename="DON-2026-000001.pdf"`
+
+Mismo formato que el pase de acceso —**80 mm de ancho**, alto ajustado al contenido, sin fondos de color para que la impresora térmica no lo saque manchado— con dos diferencias:
+
+- **Acento azul**, para distinguirlo de un vistazo del pase de visitante (verde) y del de guía (ámbar).
+- Lleva al pie, de forma visible, **"DOCUMENTO NO CONTABLE — Este recibo no tiene validez fiscal ni sustituye a una factura."**
+
+Si el recibo está anulado, el PDF sale en **rojo** y con el sello **"RECIBO ANULADO"**.
+
+No lleva código QR: es un comprobante de entrega, no un pase de acceso.
+
+---
+
+### 15.5 `DELETE /donaciones/:id` (Anular recibo)
+Baja lógica. El recibo deja de contar en el arqueo, pero la fila se conserva.
+
+* **Permiso requerido:** `Módulo: 'Donaciones'`, `Acción: 'Anular'`
+* **Request Body (JSON - opcional):**
+```json
+{ "motivo": "Error de captura" }
+```
+> El motivo queda guardado en `motivoAnulacion` y en la Bitácora.
+
+* **Response (200 OK - JSON):** El recibo con `anulado: true`.
+* Falla con `400` si ya estaba anulado o si **la caja de origen ya se cerró**.
+
+---
+
+### 15.6 Efecto en el arqueo de caja
+
+El monto esperado pasa a incluir las donaciones:
+
+```
+montoEsperado = montoInicial + ventas en efectivo + donaciones − gastos
+```
+
+`GET /cajas/:id/arqueo` (permiso `Cajas` + `Editar`) devuelve ahora el desglose:
+
+```json
+{
+  "idApertura": 16,
+  "montoInicial": 500,
+  "ventasEfectivo": 0,
+  "totalDonaciones": 300.5,
+  "totalGastos": 0,
+  "montoEsperado": 800.5
+}
+```
+
+Anular un recibo lo descuenta de inmediato: solo cuentan las donaciones **no anuladas** de esa caja.
 

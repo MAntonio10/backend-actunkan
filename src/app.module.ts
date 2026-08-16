@@ -13,9 +13,8 @@ import { ModuloAccionesModule } from './modulo-acciones/modulo-acciones.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { BitacoraModule } from './bitacora/bitacora.module';
 import { CajasModule } from './cajas/cajas.module';
-import { GastosModule } from './gastos/gastos.module';
-import { TiposGastoModule } from './tipos-gasto/tipos-gasto.module';
 import { GuiasModule } from './guias/guias.module';
+import { DonacionesModule } from './donaciones/donaciones.module';
 import { PagosModule } from './pagos/pagos.module';
 import { TarifasModule } from './tarifas/tarifas.module';
 import { TicketsModule } from './tickets/tickets.module';
@@ -54,9 +53,8 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
     UsuariosModule,
     BitacoraModule,
     CajasModule,
-    GastosModule,
-    TiposGastoModule,
     GuiasModule,
+    DonacionesModule,
     PagosModule,
     TarifasModule,
     TicketsModule,

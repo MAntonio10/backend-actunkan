@@ -65,7 +65,7 @@ const crearTxMock = () => {
     // findFirst se usa para rechazar nombres de guía repetidos; sin coincidencia por defecto.
     guia: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
     grupoEmision: { create: jest.fn().mockResolvedValue({ id: 100 }) },
-    correlativoTicket: {
+    correlativo: {
       upsert: jest.fn(),
     },
     ticket: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
@@ -75,7 +75,7 @@ const crearTxMock = () => {
 
   // Correlativo: incrementa en cada llamada, como haría el upsert real.
   let contador = 0;
-  tx.correlativoTicket.upsert.mockImplementation(() =>
+  tx.correlativo.upsert.mockImplementation(() =>
     Promise.resolve({ ultimoNumero: ++contador }),
   );
 

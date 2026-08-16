@@ -5,7 +5,7 @@
  * borrando los permisos previos, este script solo inserta lo que falta. Nada se borra.
  *
  * Uso: npx ts-node prisma/asignar-permisos.ts <idUsuario> <Modulo> [<Modulo> ...]
- * Ej.: npx ts-node prisma/asignar-permisos.ts 3 EmisionTickets Cajas Gastos
+ * Ej.: npx ts-node prisma/asignar-permisos.ts 3 EmisionTickets Cajas Donaciones
  */
 import { PrismaClient } from '@prisma/client';
 
