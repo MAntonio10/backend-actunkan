@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
@@ -7,6 +13,7 @@ import { CerrarCajaDto } from './dto/cerrar-caja.dto';
 import { QueryCajaDto } from './dto/query-caja.dto';
 import { QueryCierreDto } from './dto/query-cierre.dto';
 import { getFechaUTC6 } from '../common/utils/date.util';
+import { conciliarLotesVencidos } from '../tickets/conciliar-vencidos.util';
 
 export interface EjecutorInfo {
   id: number;
@@ -133,7 +140,55 @@ export class CajasService {
       .plus(ventasEfectivo)
       .plus(totalDonaciones);
 
-    return { ventasEfectivo, totalDonaciones, montoEsperado };
+    return {
+      ventasEfectivo,
+      totalDonaciones,
+      montoEsperado,
+      discrepanciaOffline: await this.calcularDiscrepanciaOffline(client, idApertura),
+    };
+  }
+
+  /**
+   * Ventas offline en las que se cobró algo distinto de lo que correspondía.
+   *
+   * **No altera el monto esperado**, y es a propósito: el esperado es el dinero que
+   * debería haber en el cajón, y en el cajón está lo que se cobró. Si la
+   * discrepancia se restara, el arqueo cuadraría mal y el faltante aparecería como
+   * un error del cajero al contar.
+   *
+   * Por eso va como cifra aparte: sin ella, un cobro de menos no deja ninguna
+   * huella en el arqueo —el pago se registró por lo cobrado y el esperado coincide
+   * con lo contado— y nadie se entera nunca.
+   *
+   * `montoRecalculado` solo se guarda cuando difiere de lo cobrado (ver
+   * `OfflineService`), así que basta con contar las filas donde no es nulo.
+   */
+  private async calcularDiscrepanciaOffline(client: any, idApertura: number) {
+    const desviados = await client.ticket.aggregate({
+      _count: { _all: true },
+      _sum: { montoTotal: true, montoRecalculado: true },
+      where: {
+        idAperturaCaja: idApertura,
+        anulado: false,
+        origenOffline: true,
+        montoRecalculado: { not: null },
+      },
+    });
+
+    const tickets = desviados._count._all ?? 0;
+
+    if (tickets === 0) return null;
+
+    const montoCobrado = new Prisma.Decimal(desviados._sum.montoTotal ?? 0);
+    const montoRecalculado = new Prisma.Decimal(desviados._sum.montoRecalculado ?? 0);
+
+    return {
+      tickets,
+      montoCobrado: montoCobrado.toString(),
+      montoRecalculado: montoRecalculado.toString(),
+      // Negativa = se cobró de menos.
+      diferencia: montoCobrado.minus(montoRecalculado).toString(),
+    };
   }
 
   async abrirCaja(dto: AbrirCajaDto, ejecutor?: EjecutorInfo) {
@@ -292,11 +347,8 @@ export class CajasService {
 
   async arqueo(id: number) {
     const apertura = await this.findOne(id);
-    const { ventasEfectivo, totalDonaciones, montoEsperado } = await this.calcularArqueo(
-      this.prisma,
-      apertura.id,
-      apertura.montoInicial,
-    );
+    const { ventasEfectivo, totalDonaciones, montoEsperado, discrepanciaOffline } =
+      await this.calcularArqueo(this.prisma, apertura.id, apertura.montoInicial);
 
     return {
       idApertura: apertura.id,
@@ -304,6 +356,9 @@ export class CajasService {
       ventasEfectivo: ventasEfectivo.toNumber(),
       totalDonaciones: totalDonaciones.toNumber(),
       montoEsperado: montoEsperado.toNumber(),
+      // Este endpoint ya exige `Cajas.Editar`, así que la cifra solo llega a un
+      // supervisor. Es `null` cuando ninguna venta offline se cobró mal.
+      discrepanciaOffline,
     };
   }
 
@@ -327,7 +382,9 @@ export class CajasService {
         throw new BadRequestException('La caja ya se encuentra cerrada o anulada.');
       }
 
-      const { ventasEfectivo, montoEsperado } = await this.calcularArqueo(
+      await this.exigirSinLotesOfflinePendientes(tx, apertura.id, dto, supervisa, ejecutor);
+
+      const { ventasEfectivo, montoEsperado, discrepanciaOffline } = await this.calcularArqueo(
         tx,
         apertura.id,
         apertura.montoInicial,
@@ -365,7 +422,95 @@ export class CajasService {
       return {
         apertura: supervisa ? aperturaActualizada : this.ocultarArqueoDeCaja(aperturaActualizada),
         cierre: supervisa ? cierre : this.ocultarArqueoDeCierre(cierre),
+        // Misma regla que `montoEsperado`: quien cobró de menos no debería ver si
+        // el sistema lo detectó.
+        ...(supervisa ? { discrepanciaOffline } : {}),
       };
+    });
+  }
+
+  /**
+   * Una venta offline de las 10:00 que se sube a las 16:00 no puede entrar en una
+   * caja que se cerró a las 14:00: alteraría un arqueo ya guardado. Por eso el
+   * turno se cierra con conexión, que es cuando de todos modos se cuenta el
+   * efectivo.
+   */
+  private async exigirSinLotesOfflinePendientes(
+    tx: any,
+    idApertura: number,
+    dto: CerrarCajaDto,
+    supervisa: boolean,
+    ejecutor?: EjecutorInfo,
+  ) {
+    const activos = await tx.loteOffline.findMany({
+      where: { idAperturaCaja: idApertura, estado: 'ACTIVO' },
+      orderBy: { id: 'asc' },
+    });
+
+    if (activos.length === 0) return;
+
+    const ahora = getFechaUTC6();
+    const vencidos = activos.filter((l: any) => l.expiraEn <= ahora);
+    const vigentes = activos.filter((l: any) => l.expiraEn > ahora);
+
+    // Un lote vencido ya no lo usa nadie: el dispositivo reservó otro al día
+    // siguiente. Exigir que alguien lo concilie dejaría esta caja imposible de
+    // cerrar y, como solo puede haber una abierta, bloquearía la operación entera.
+    if (vencidos.length > 0) {
+      await conciliarLotesVencidos(tx, vencidos, {
+        idUsuario: ejecutor?.id,
+        usuarioNombre: await this.obtenerNombreEjecutor(tx, ejecutor),
+        motivo: `cierre de la caja ${idApertura}`,
+      });
+    }
+
+    // Los que siguen vigentes sí bloquean: el dispositivo todavía puede estar
+    // vendiendo, y esas ventas tienen que entrar antes de congelar el arqueo.
+    if (vigentes.length === 0) return;
+
+    const lote = vigentes[0];
+    const foliosReservados = await tx.folioReservado.count({
+      where: { idLote: lote.id, estado: 'RESERVADO' },
+    });
+
+    if (!dto.forzarLoteOffline) {
+      throw new ConflictException({
+        codigo: 'LOTE_OFFLINE_PENDIENTE',
+        idLote: lote.id,
+        foliosReservados,
+        message:
+          `La caja tiene el lote offline ${lote.id} activo, con ${foliosReservados} folios sin ` +
+          'liquidar. Suba la cola de ventas del dispositivo y concilie el lote antes de cerrar.',
+      });
+    }
+
+    // Forzar destruye las ventas que el dispositivo no haya subido: ese dinero
+    // queda cobrado sin ticket. Es supervisión, no una acción de cajero.
+    if (!supervisa) {
+      throw new ForbiddenException(
+        'Forzar el cierre con un lote offline pendiente requiere permiso de supervisión (Cajas.Editar).',
+      );
+    }
+
+    await tx.folioReservado.updateMany({
+      where: { idLote: lote.id, estado: 'RESERVADO' },
+      data: { estado: 'INVALIDADO' },
+    });
+
+    await tx.loteOffline.update({
+      where: { id: lote.id },
+      data: { estado: 'INVALIDADO' },
+    });
+
+    await BitacoraService.registrarEnTransaccion(tx, {
+      idUsuario: ejecutor?.id,
+      usuarioNombre: await this.obtenerNombreEjecutor(tx, ejecutor),
+      accion: 'FORZAR_CIERRE_LOTE_OFFLINE',
+      modulo: 'Cajas',
+      descripcion:
+        `Se forzó el cierre de la caja ${idApertura} invalidando el lote offline ${lote.id}: ` +
+        `${foliosReservados} folios quedaron inutilizables. Las ventas que el dispositivo no ` +
+        'haya subido se pierden.',
     });
   }
 

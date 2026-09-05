@@ -13,6 +13,7 @@ import { EjecutorInfo } from '../common/utils/ejecutor.util';
 import { getFechaUTC6 } from '../common/utils/date.util';
 import { generarCorrelativo } from '../common/utils/correlativo.util';
 import { construirPayloadQr, firmarNumeroTicket, verificarFirmaTicket } from '../common/utils/qr.util';
+import { resolverTarifaEn, resolverTarifaGuiaEn } from '../tarifas/resolver-tarifa.util';
 import { GuiasService } from '../guias/guias.service';
 import { RecurrenteService } from '../pagos/recurrente.service';
 import { ESTADO_PAGO_PAGADO, ESTADO_PAGO_PENDIENTE } from '../pagos/pagos.service';
@@ -84,27 +85,30 @@ export class TicketsService {
     return generarCorrelativo(tx, process.env.TICKET_SERIE || 'TCK', anio);
   }
 
-  /** Resuelve la tarifa vigente en servidor. El cliente nunca envía precios. */
+  /**
+   * Resuelve la tarifa en servidor. El cliente nunca envía precios.
+   *
+   * `fecha` es el momento de la venta: ahora para la emisión online, y la
+   * `fechaEmision` del dispositivo cuando se sube una venta offline, que puede ser
+   * de otro día y regirse por otro precio.
+   */
   private async obtenerPrecioVigente(
     tx: any,
     idAtraccion: number,
     idOrigen: number,
     tipoVisitante: { id: number; codigo: string; nombre: string },
+    fecha: Date = new Date(),
   ): Promise<Prisma.Decimal> {
     // El menor de 7 años siempre entra gratis, exista o no una tarifa cargada.
     if (tipoVisitante.codigo === CATEGORIA_NINO_MENOR) {
       return new Prisma.Decimal(0);
     }
 
-    const tarifa = await tx.tarifa.findFirst({
-      where: {
-        idAtraccion,
-        idOrigen,
-        idTipoVisitante: tipoVisitante.id,
-        vigenteHasta: null,
-        anulado: false,
-      },
-    });
+    const tarifa = await resolverTarifaEn(
+      tx,
+      { idAtraccion, idOrigen, idTipoVisitante: tipoVisitante.id },
+      fecha,
+    );
 
     if (!tarifa) {
       throw new BadRequestException(
@@ -149,7 +153,20 @@ export class TicketsService {
     return { estadoPago: ESTADO_PAGO_PENDIENTE, idPagoPasarela, checkoutUrl };
   }
 
-  private async resolverGuia(tx: any, dto: EmitirTicketDto, ahora: Date) {
+  /**
+   * @param reutilizarExistente Cuando el modo es 'nuevo' y el nombre ya está en uso,
+   *   devuelve el guía existente en vez de rechazar. Lo necesita la subida offline:
+   *   es normal que el mismo guía nuevo acompañe a varios grupos en un turno, y la
+   *   primera venta lo crea. Rechazar las siguientes perdería ventas ya cobradas.
+   *   En la emisión online se mantiene el rechazo, porque ahí el taquillero puede
+   *   corregir en el momento y elegirlo de la lista.
+   */
+  async resolverGuia(
+    tx: any,
+    dto: EmitirTicketDto,
+    ahora: Date,
+    reutilizarExistente = false,
+  ) {
     const guiaDto = dto.guia;
     if (!guiaDto) return null;
 
@@ -175,9 +192,16 @@ export class TicketsService {
       throw new BadRequestException('Debe indicar el número de carnet cuando el guía tiene carnet.');
     }
 
-    // Sin esta verificación, escribir dos veces el mismo nombre creaba dos guías y
-    // el selector terminaba lleno de repetidos.
-    await GuiasService.exigirNombreLibre(tx, guiaDto.nombre);
+    if (reutilizarExistente) {
+      const existente = await tx.guia.findFirst({
+        where: { nombre: guiaDto.nombre.trim(), anulado: false },
+      });
+      if (existente) return existente;
+    } else {
+      // Sin esta verificación, escribir dos veces el mismo nombre creaba dos guías y
+      // el selector terminaba lleno de repetidos.
+      await GuiasService.exigirNombreLibre(tx, guiaDto.nombre);
+    }
 
     // El guía nuevo queda registrado en el catálogo para futuras emisiones.
     return tx.guia.create({
@@ -310,6 +334,117 @@ export class TicketsService {
     };
   }
 
+  /**
+   * Valida los catálogos de la venta y calcula el desglose por categoría.
+   *
+   * Es la parte que comparten la emisión online y la subida de ventas offline: las
+   * mismas reglas de negocio (país obligatorio para extranjero, centro educativo no
+   * aplica a extranjero, menor de 7 años gratis) tienen que regir en los dos
+   * caminos, y duplicarlas garantizaría que con el tiempo divergieran.
+   *
+   * @param fecha Momento de la venta, que decide qué tarifa aplica. Ahora para la
+   *   emisión online; la `fechaEmision` del dispositivo para una venta offline.
+   */
+  async prepararEmision(tx: any, dto: EmitirTicketDto, fecha: Date = new Date()) {
+    const [atraccion, origen, tipoRecorrido, opcionPago] = await Promise.all([
+      tx.atraccion.findUnique({ where: { id: dto.idAtraccion } }),
+      tx.origenVisitante.findUnique({ where: { id: dto.idOrigen } }),
+      tx.tipoRecorrido.findUnique({ where: { id: dto.idTipoRecorrido } }),
+      tx.opcionPago.findUnique({ where: { id: dto.idOpcionPago } }),
+    ]);
+
+    if (!atraccion || atraccion.anulado) {
+      throw new BadRequestException('La atracción indicada no existe o está anulada.');
+    }
+    if (!origen || origen.anulado) {
+      throw new BadRequestException('El origen de visitante indicado no existe o está anulado.');
+    }
+    if (!tipoRecorrido || tipoRecorrido.anulado) {
+      throw new BadRequestException('El tipo de recorrido indicado no existe o está anulado.');
+    }
+    if (!opcionPago || opcionPago.anulado) {
+      throw new BadRequestException('La forma de pago indicada no existe o está anulada.');
+    }
+
+    const esExtranjero = origen.codigo === ORIGEN_EXTRANJERO;
+    let idPais: number | null = null;
+
+    if (esExtranjero) {
+      if (!dto.idPais) {
+        throw new BadRequestException(
+          'Debe indicar el país de origen cuando el visitante es extranjero.',
+        );
+      }
+      const pais = await tx.pais.findUnique({ where: { id: dto.idPais } });
+      if (!pais || pais.anulado) {
+        throw new BadRequestException(`El país con ID ${dto.idPais} no existe o está anulado.`);
+      }
+      idPais = pais.id;
+    }
+
+    // Solo interesan las categorías con cantidad real.
+    const cantidades = dto.cantidades.filter((c) => c.cantidad > 0);
+    const totalPersonas = cantidades.reduce((suma, c) => suma + c.cantidad, 0);
+
+    if (totalPersonas < 1) {
+      throw new BadRequestException('Debe registrar al menos una persona en el ticket.');
+    }
+
+    const detalles: Array<{
+      idTipoVisitante: number;
+      cantidad: number;
+      precioUnitario: Prisma.Decimal;
+      subtotal: Prisma.Decimal;
+    }> = [];
+    let montoVisitantes = new Prisma.Decimal(0);
+
+    for (const item of cantidades) {
+      const tipoVisitante = await tx.tipoVisitante.findUnique({
+        where: { id: item.idTipoVisitante },
+      });
+
+      if (!tipoVisitante || tipoVisitante.anulado) {
+        throw new BadRequestException(
+          `El tipo de visitante con ID ${item.idTipoVisitante} no existe o está anulado.`,
+        );
+      }
+
+      if (esExtranjero && tipoVisitante.codigo === CATEGORIA_CENTRO_EDUCATIVO) {
+        throw new BadRequestException(
+          'La categoría de centro educativo no está disponible para visitantes extranjeros.',
+        );
+      }
+
+      const precioUnitario = await this.obtenerPrecioVigente(
+        tx,
+        atraccion.id,
+        origen.id,
+        tipoVisitante,
+        fecha,
+      );
+      const subtotal = precioUnitario.mul(item.cantidad);
+
+      detalles.push({
+        idTipoVisitante: tipoVisitante.id,
+        cantidad: item.cantidad,
+        precioUnitario,
+        subtotal,
+      });
+      montoVisitantes = montoVisitantes.plus(subtotal);
+    }
+
+    return {
+      atraccion,
+      origen,
+      tipoRecorrido,
+      opcionPago,
+      idPais,
+      detalles,
+      montoVisitantes,
+      totalPersonas,
+    };
+  }
+
   async emitir(dto: EmitirTicketDto, ejecutor?: EjecutorInfo) {
     if (!ejecutor?.id) {
       throw new BadRequestException('No se pudo determinar el usuario que emite el ticket.');
@@ -327,91 +462,16 @@ export class TicketsService {
         // La caja pudo cerrarse entre la consulta anterior y esta transacción.
         await this.exigirCajaAbierta(tx, cajaActual.id);
 
-        const [atraccion, origen, tipoRecorrido, opcionPago] = await Promise.all([
-          tx.atraccion.findUnique({ where: { id: dto.idAtraccion } }),
-          tx.origenVisitante.findUnique({ where: { id: dto.idOrigen } }),
-          tx.tipoRecorrido.findUnique({ where: { id: dto.idTipoRecorrido } }),
-          tx.opcionPago.findUnique({ where: { id: dto.idOpcionPago } }),
-        ]);
-
-        if (!atraccion || atraccion.anulado) {
-          throw new BadRequestException('La atracción indicada no existe o está anulada.');
-        }
-        if (!origen || origen.anulado) {
-          throw new BadRequestException('El origen de visitante indicado no existe o está anulado.');
-        }
-        if (!tipoRecorrido || tipoRecorrido.anulado) {
-          throw new BadRequestException('El tipo de recorrido indicado no existe o está anulado.');
-        }
-        if (!opcionPago || opcionPago.anulado) {
-          throw new BadRequestException('La forma de pago indicada no existe o está anulada.');
-        }
-
-        const esExtranjero = origen.codigo === ORIGEN_EXTRANJERO;
-        let idPais: number | null = null;
-
-        if (esExtranjero) {
-          if (!dto.idPais) {
-            throw new BadRequestException(
-              'Debe indicar el país de origen cuando el visitante es extranjero.',
-            );
-          }
-          const pais = await tx.pais.findUnique({ where: { id: dto.idPais } });
-          if (!pais || pais.anulado) {
-            throw new BadRequestException(`El país con ID ${dto.idPais} no existe o está anulado.`);
-          }
-          idPais = pais.id;
-        }
-
-        // Solo interesan las categorías con cantidad real.
-        const cantidades = dto.cantidades.filter((c) => c.cantidad > 0);
-        const totalPersonas = cantidades.reduce((suma, c) => suma + c.cantidad, 0);
-
-        if (totalPersonas < 1) {
-          throw new BadRequestException('Debe registrar al menos una persona en el ticket.');
-        }
-
-        const detalles: Array<{
-          idTipoVisitante: number;
-          cantidad: number;
-          precioUnitario: Prisma.Decimal;
-          subtotal: Prisma.Decimal;
-        }> = [];
-        let montoVisitantes = new Prisma.Decimal(0);
-
-        for (const item of cantidades) {
-          const tipoVisitante = await tx.tipoVisitante.findUnique({
-            where: { id: item.idTipoVisitante },
-          });
-
-          if (!tipoVisitante || tipoVisitante.anulado) {
-            throw new BadRequestException(
-              `El tipo de visitante con ID ${item.idTipoVisitante} no existe o está anulado.`,
-            );
-          }
-
-          if (esExtranjero && tipoVisitante.codigo === CATEGORIA_CENTRO_EDUCATIVO) {
-            throw new BadRequestException(
-              'La categoría de centro educativo no está disponible para visitantes extranjeros.',
-            );
-          }
-
-          const precioUnitario = await this.obtenerPrecioVigente(
-            tx,
-            atraccion.id,
-            origen.id,
-            tipoVisitante,
-          );
-          const subtotal = precioUnitario.mul(item.cantidad);
-
-          detalles.push({
-            idTipoVisitante: tipoVisitante.id,
-            cantidad: item.cantidad,
-            precioUnitario,
-            subtotal,
-          });
-          montoVisitantes = montoVisitantes.plus(subtotal);
-        }
+        const {
+          atraccion,
+          origen,
+          tipoRecorrido,
+          opcionPago,
+          idPais,
+          detalles,
+          montoVisitantes,
+          totalPersonas,
+        } = await this.prepararEmision(tx, dto);
 
         const ahora = getFechaUTC6();
         const anio = ahora.getFullYear();
@@ -477,7 +537,7 @@ export class TicketsService {
 
         // --- Ticket independiente del guía sin carnet ---
         if (guia && !guia.tieneCarnet) {
-          const tarifaGuia = await tx.tarifaGuia.findFirst({ where: { vigenteHasta: null } });
+          const tarifaGuia = await resolverTarifaGuiaEn(tx);
 
           if (!tarifaGuia) {
             throw new BadRequestException(
@@ -593,7 +653,20 @@ export class TicketsService {
 
     // Las métricas se agregan en el servidor: el cliente no debe traerse el dataset
     // completo solo para sumar.
-    const [datos, total, agregados] = await Promise.all([
+    //
+    // Lo recaudado y las personas se cuentan **siempre** sobre los tickets vigentes,
+    // aunque el listado incluya los anulados: un ticket anulado no cobró nada ni
+    // dejó entrar a nadie, y ya salió del arqueo de su caja. Sumarlo mostraría una
+    // recaudación que no existe con solo pedir `incluirAnulados=true`.
+    const whereVigentes = { ...where, anulado: false };
+
+    // Las cifras describen **el mismo conjunto que el listado**: si los anulados no
+    // se están mostrando, tampoco se reportan. Así se cumple siempre
+    // `totalTickets = ticketsVigentes + ticketsAnulados`.
+    const listadoIncluyeAnulados = where.anulado !== false;
+    const SIN_ANULADOS = { _sum: { montoTotal: null }, _count: { _all: 0 } };
+
+    const [datos, total, vigentes, anulados] = await Promise.all([
       this.prisma.ticket.findMany({
         where,
         include: INCLUDE_TICKET,
@@ -604,9 +677,17 @@ export class TicketsService {
       }),
       this.prisma.ticket.count({ where }),
       this.prisma.ticket.aggregate({
-        where,
+        where: whereVigentes,
         _sum: { montoTotal: true, cantidadPersonas: true },
+        _count: { _all: true },
       }),
+      listadoIncluyeAnulados
+        ? this.prisma.ticket.aggregate({
+            where: { ...where, anulado: true },
+            _sum: { montoTotal: true },
+            _count: { _all: true },
+          })
+        : Promise.resolve(SIN_ANULADOS),
     ]);
 
     return {
@@ -615,15 +696,24 @@ export class TicketsService {
       pagina,
       limite,
       metricas: {
+        // Cuántos trae el listado con el filtro aplicado; cuadra con la paginación.
         totalTickets: total,
-        totalPersonas: agregados._sum.cantidadPersonas ?? 0,
-        montoRecaudado: (agregados._sum.montoTotal ?? new Prisma.Decimal(0)).toString(),
+        ticketsVigentes: vigentes._count._all,
+        totalPersonas: vigentes._sum.cantidadPersonas ?? 0,
+        montoRecaudado: (vigentes._sum.montoTotal ?? new Prisma.Decimal(0)).toString(),
+        ticketsAnulados: anulados._count._all,
+        montoAnulado: (anulados._sum.montoTotal ?? new Prisma.Decimal(0)).toString(),
       },
     };
   }
 
-  async findOne(id: number) {
-    const ticket = await this.prisma.ticket.findUnique({
+  /**
+   * @param cliente Transacción en curso, para leer un ticket recién creado que
+   *   todavía no está confirmado. Sin esto, la subida offline no podría devolver
+   *   el ticket que acaba de insertar dentro de su propia transacción.
+   */
+  async findOne(id: number, cliente?: any) {
+    const ticket = await (cliente ?? this.prisma).ticket.findUnique({
       where: { id },
       include: INCLUDE_TICKET,
     });

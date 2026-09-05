@@ -129,7 +129,25 @@ export class DonacionesService {
       ];
     }
 
-    const [datos, total, agregados] = await Promise.all([
+    /**
+     * Lo recaudado se calcula **siempre** sobre los recibos vigentes, aunque el
+     * listado incluya los anulados.
+     *
+     * Un recibo anulado no recaudó nada: ese dinero salió del arqueo cuando se
+     * anuló (ver 15.6). Si el total lo sumara, bastaría con marcar
+     * `incluirAnulados=true` para ver una recaudación que no existe, y el número
+     * dejaría de coincidir con lo que la caja realmente recibió.
+     */
+    const whereVigentes = { ...where, anulado: false };
+
+    // Las cifras describen **el mismo conjunto que el listado**: si los anulados no
+    // se están mostrando, tampoco se reportan. Así se cumple siempre
+    // `totalRecibos = recibosVigentes + recibosAnulados`, y la pantalla se puede
+    // cuadrar de un vistazo.
+    const listadoIncluyeAnulados = where.anulado !== false;
+    const SIN_ANULADOS = { _sum: { monto: null }, _count: { _all: 0 } };
+
+    const [datos, total, vigentes, anulados] = await Promise.all([
       this.prisma.donacion.findMany({
         where,
         include: INCLUDE_DETALLE,
@@ -139,7 +157,18 @@ export class DonacionesService {
         take: limite,
       }),
       this.prisma.donacion.count({ where }),
-      this.prisma.donacion.aggregate({ where, _sum: { monto: true } }),
+      this.prisma.donacion.aggregate({
+        where: whereVigentes,
+        _sum: { monto: true },
+        _count: { _all: true },
+      }),
+      listadoIncluyeAnulados
+        ? this.prisma.donacion.aggregate({
+            where: { ...where, anulado: true },
+            _sum: { monto: true },
+            _count: { _all: true },
+          })
+        : Promise.resolve(SIN_ANULADOS),
     ]);
 
     return {
@@ -148,8 +177,14 @@ export class DonacionesService {
       pagina,
       limite,
       metricas: {
+        // Cuántos trae el listado con el filtro aplicado; cuadra con la paginación.
         totalRecibos: total,
-        montoRecaudado: (agregados._sum.monto ?? new Prisma.Decimal(0)).toString(),
+        recibosVigentes: vigentes._count._all,
+        montoRecaudado: (vigentes._sum.monto ?? new Prisma.Decimal(0)).toString(),
+        // Se exponen para que la diferencia entre recibos y recaudación sea
+        // explicable en pantalla, en vez de parecer un error de cuadre.
+        recibosAnulados: anulados._count._all,
+        montoAnulado: (anulados._sum.monto ?? new Prisma.Decimal(0)).toString(),
       },
     };
   }

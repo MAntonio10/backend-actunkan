@@ -112,8 +112,42 @@ export class SesionesService {
       throw new UnauthorizedException('La sesión expiró. Vuelva a iniciar sesión.');
     }
 
+    /**
+     * Un usuario dado de baja conserva un único derecho: liquidar lo que ya
+     * vendió. Se le permite rotar el refresh —sin él no podría llamar a nada,
+     * porque el token de acceso dura minutos— pero el acceso que reciba viene
+     * marcado como `soloSincronizacion` y el guard lo limita a los handlers de
+     * sincronización.
+     *
+     * Ese derecho está atado a que **exista algo pendiente de liquidar**: un lote
+     * offline suyo, todavía activo y sin vencer. Sin eso, la baja es total.
+     */
     if (sesion.usuario.anulado) {
-      throw new UnauthorizedException('El usuario se encuentra deshabilitado.');
+      const pendiente = await this.prisma.loteOffline.findFirst({
+        where: {
+          idUsuario: sesion.idUsuario,
+          estado: 'ACTIVO',
+          expiraEn: { gt: ahora },
+        },
+      });
+
+      if (!pendiente) {
+        throw new UnauthorizedException('El usuario se encuentra deshabilitado.');
+      }
+
+      this.logger.warn(
+        `Usuario anulado ${sesion.idUsuario} refrescó sesión para sincronizar el lote offline ${pendiente.id}.`,
+      );
+
+      await BitacoraService.registrarEnTransaccion(this.prisma, {
+        idUsuario: sesion.idUsuario,
+        usuarioNombre: sesion.usuario.nombre,
+        accion: 'REFRESH_USUARIO_ANULADO',
+        modulo: 'Auth',
+        descripcion:
+          `El usuario ANULADO '${sesion.usuario.nombre}' renovó su sesión con alcance reducido ` +
+          `para sincronizar el lote offline ${pendiente.id}. Solo puede subir y conciliar ventas ya cobradas.`,
+      });
     }
 
     // Rotación: se revoca la anterior y se emite otra conservando la expiración original,

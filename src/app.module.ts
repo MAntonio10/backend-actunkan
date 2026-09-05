@@ -14,6 +14,8 @@ import { UsuariosModule } from './usuarios/usuarios.module';
 import { BitacoraModule } from './bitacora/bitacora.module';
 import { CajasModule } from './cajas/cajas.module';
 import { GuiasModule } from './guias/guias.module';
+import { ActividadesModule } from './actividades/actividades.module';
+import { SectoresModule } from './sectores/sectores.module';
 import { DonacionesModule } from './donaciones/donaciones.module';
 import { PagosModule } from './pagos/pagos.module';
 import { TarifasModule } from './tarifas/tarifas.module';
@@ -54,6 +56,8 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
     BitacoraModule,
     CajasModule,
     GuiasModule,
+    ActividadesModule,
+    SectoresModule,
     DonacionesModule,
     PagosModule,
     TarifasModule,

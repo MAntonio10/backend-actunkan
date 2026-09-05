@@ -168,4 +168,100 @@ describe('DonacionesService', () => {
       await expect(service.anular(404, undefined, EJECUTOR)).rejects.toThrow(NotFoundException);
     });
   });
+
+  /**
+   * Un recibo anulado no recaudó nada: ese dinero salió del arqueo al anularlo.
+   * Si el total lo sumara, bastaría pedir `incluirAnulados=true` para ver una
+   * recaudación que no existe.
+   */
+  describe('findAll: la recaudación nunca cuenta recibos anulados', () => {
+    const prepararAgregados = (vigentes: any, anulados: any) => {
+      prisma.donacion.findMany.mockResolvedValue([]);
+      prisma.donacion.count.mockResolvedValue(vigentes.count + anulados.count);
+      prisma.donacion.aggregate
+        .mockResolvedValueOnce({ _sum: { monto: vigentes.monto }, _count: { _all: vigentes.count } })
+        .mockResolvedValueOnce({ _sum: { monto: anulados.monto }, _count: { _all: anulados.count } });
+    };
+
+    const whereDe = (llamada: number) =>
+      prisma.donacion.aggregate.mock.calls[llamada][0].where;
+
+    it('suma solo los vigentes aunque el listado incluya anulados', async () => {
+      prepararAgregados({ monto: 300, count: 2 }, { monto: 500, count: 1 });
+
+      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+
+      expect(res.metricas.montoRecaudado).toBe('300');
+      expect(res.metricas.recibosVigentes).toBe(2);
+    });
+
+    it('el agregado de recaudación fuerza anulado: false', async () => {
+      prepararAgregados({ monto: 300, count: 2 }, { monto: 0, count: 0 });
+
+      await service.findAll({ incluirAnulados: 'true' } as any);
+
+      expect(whereDe(0).anulado).toBe(false);
+    });
+
+    // Sin estas cifras, ver 3 recibos y Q300 parecería un error de cuadre.
+    it('expone lo anulado por separado, para que la diferencia se explique', async () => {
+      prepararAgregados({ monto: 300, count: 2 }, { monto: 500, count: 1 });
+
+      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+
+      expect(res.metricas.recibosAnulados).toBe(1);
+      expect(res.metricas.montoAnulado).toBe('500');
+      expect(whereDe(1).anulado).toBe(true);
+    });
+
+    it('totalRecibos sigue cuadrando con la paginación', async () => {
+      prepararAgregados({ monto: 300, count: 2 }, { monto: 500, count: 1 });
+
+      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+
+      expect(res.metricas.totalRecibos).toBe(res.total);
+      expect(res.total).toBe(3);
+    });
+
+    /**
+     * Si el listado no muestra anulados, las cifras tampoco los cuentan: de lo
+     * contrario la pantalla diría "1 recibo" y "24 anulados" a la vez.
+     */
+    it('sin el flag ni siquiera consulta los anulados', async () => {
+      prisma.donacion.findMany.mockResolvedValue([]);
+      prisma.donacion.count.mockResolvedValue(2);
+      prisma.donacion.aggregate.mockResolvedValue({
+        _sum: { monto: 300 },
+        _count: { _all: 2 },
+      });
+
+      const res = await service.findAll({} as any);
+
+      expect(res.metricas.montoRecaudado).toBe('300');
+      expect(res.metricas.recibosAnulados).toBe(0);
+      expect(res.metricas.montoAnulado).toBe('0');
+      // Un solo agregado: el de vigentes.
+      expect(prisma.donacion.aggregate).toHaveBeenCalledTimes(1);
+    });
+
+    // Propiedad que hace la pantalla verificable de un vistazo.
+    it('totalRecibos siempre es vigentes + anulados', async () => {
+      prepararAgregados({ monto: 300, count: 2 }, { monto: 500, count: 1 });
+
+      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+
+      expect(res.metricas.recibosVigentes + res.metricas.recibosAnulados).toBe(
+        res.metricas.totalRecibos,
+      );
+    });
+
+    it('los filtros del listado también acotan la recaudación', async () => {
+      prepararAgregados({ monto: 120, count: 1 }, { monto: 0, count: 0 });
+
+      await service.findAll({ idAperturaCaja: 9, buscar: 'Fundación' } as any);
+
+      expect(whereDe(0)).toMatchObject({ idAperturaCaja: 9, anulado: false });
+      expect(whereDe(0).OR).toBeDefined();
+    });
+  });
 });

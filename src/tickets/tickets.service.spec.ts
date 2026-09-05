@@ -610,11 +610,76 @@ describe('TicketsService', () => {
         },
       ]);
       prisma.ticket.count.mockResolvedValue(2);
-      prisma.ticket.aggregate.mockResolvedValue({ _sum: { montoTotal: 100, cantidadPersonas: 4 } });
+      // Dos agregados: vigentes y anulados.
+      prisma.ticket.aggregate.mockResolvedValue({
+        _sum: { montoTotal: 100, cantidadPersonas: 4 },
+        _count: { _all: 2 },
+      });
 
       const res = await service.findAll({});
       expect(res.datos[0].estadoPago).toBe('Pago pendiente');
       expect(res.datos[1].estadoPago).toBe('PAGADO');
+    });
+  });
+
+  /**
+   * Un ticket anulado no cobró nada ni dejó entrar a nadie, y ya salió del arqueo
+   * de su caja. Si las métricas lo sumaran, bastaría pedir `incluirAnulados=true`
+   * para ver una recaudación que no existe.
+   */
+  describe('findAll: la recaudación nunca cuenta tickets anulados', () => {
+    const prepararAgregados = (vigentes: any, anulados: any) => {
+      prisma.ticket.findMany.mockResolvedValue([]);
+      prisma.ticket.count.mockResolvedValue(vigentes.count + anulados.count);
+      prisma.ticket.aggregate
+        .mockResolvedValueOnce({
+          _sum: { montoTotal: vigentes.monto, cantidadPersonas: vigentes.personas },
+          _count: { _all: vigentes.count },
+        })
+        .mockResolvedValueOnce({
+          _sum: { montoTotal: anulados.monto },
+          _count: { _all: anulados.count },
+        });
+    };
+
+    const whereDe = (llamada: number) => prisma.ticket.aggregate.mock.calls[llamada][0].where;
+
+    it('suma solo los vigentes aunque el listado incluya anulados', async () => {
+      prepararAgregados({ monto: 400, personas: 10, count: 4 }, { monto: 250, count: 2 });
+
+      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+
+      expect(res.metricas.montoRecaudado).toBe('400');
+      expect(res.metricas.ticketsVigentes).toBe(4);
+    });
+
+    // Los visitantes de un ticket anulado no entraron con ese ticket.
+    it('tampoco cuenta a sus personas', async () => {
+      prepararAgregados({ monto: 400, personas: 10, count: 4 }, { monto: 250, count: 2 });
+
+      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+
+      expect(res.metricas.totalPersonas).toBe(10);
+      expect(whereDe(0).anulado).toBe(false);
+    });
+
+    it('expone lo anulado por separado', async () => {
+      prepararAgregados({ monto: 400, personas: 10, count: 4 }, { monto: 250, count: 2 });
+
+      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+
+      expect(res.metricas.ticketsAnulados).toBe(2);
+      expect(res.metricas.montoAnulado).toBe('250');
+      expect(whereDe(1).anulado).toBe(true);
+    });
+
+    it('totalTickets sigue cuadrando con la paginación', async () => {
+      prepararAgregados({ monto: 400, personas: 10, count: 4 }, { monto: 250, count: 2 });
+
+      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+
+      expect(res.metricas.totalTickets).toBe(res.total);
+      expect(res.total).toBe(6);
     });
   });
 });

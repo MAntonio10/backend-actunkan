@@ -1,5 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { CajasService } from './cajas.service';
@@ -27,7 +32,23 @@ const crearTxMock = () => ({
     aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }),
     count: jest.fn().mockResolvedValue(0),
   },
-  ticket: { count: jest.fn().mockResolvedValue(0) },
+  ticket: {
+    count: jest.fn().mockResolvedValue(0),
+    // Ventas offline cobradas por un monto distinto al que correspondía.
+    aggregate: jest
+      .fn()
+      .mockResolvedValue({ _count: { _all: 0 }, _sum: { montoTotal: 0, montoRecalculado: 0 } }),
+  },
+  loteOffline: {
+    findFirst: jest.fn().mockResolvedValue(null),
+    // Lotes offline activos de la caja: por defecto ninguno.
+    findMany: jest.fn().mockResolvedValue([]),
+    update: jest.fn().mockResolvedValue({}),
+  },
+  folioReservado: {
+    count: jest.fn().mockResolvedValue(0),
+    updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+  },
   usuario: { findUnique: jest.fn().mockResolvedValue({ id: 1, nombre: 'QA Tester' }) },
 });
 
@@ -43,6 +64,11 @@ describe('CajasService', () => {
       aperturaCaja: { findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
       ticketPago: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
       donacion: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
+      ticket: {
+        aggregate: jest
+          .fn()
+          .mockResolvedValue({ _count: { _all: 0 }, _sum: { montoTotal: 0, montoRecalculado: 0 } }),
+      },
       // Decide si la respuesta revela el arqueo. Por defecto: supervisor.
       permisos: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) },
     };
@@ -108,6 +134,244 @@ describe('CajasService', () => {
       );
       tx.aperturaCaja.update.mockResolvedValue({ id: 1 });
     };
+
+    /**
+     * Una venta offline de las 10:00 que sube a las 16:00 no puede entrar en una
+     * caja cerrada a las 14:00 sin corromper un arqueo ya guardado.
+     */
+    describe('lote offline pendiente', () => {
+      /** Lote todavía vigente: el dispositivo aún puede estar vendiendo. */
+      const conLoteActivo = (foliosReservados = 88) => {
+        tx.loteOffline.findMany.mockResolvedValue([
+          { id: 7, estado: 'ACTIVO', expiraEn: new Date(Date.now() + 8 * 3600_000) },
+        ]);
+        tx.folioReservado.count.mockResolvedValue(foliosReservados);
+      };
+
+      /** Lote que venció anoche y que el dispositivo ya reemplazó. */
+      const conLoteVencido = () => {
+        tx.loteOffline.findMany.mockResolvedValue([
+          { id: 5, estado: 'ACTIVO', expiraEn: new Date(Date.now() - 8 * 3600_000) },
+        ]);
+        tx.folioReservado.count.mockResolvedValue(88);
+      };
+
+      it('bloquea el cierre con 409 y dice cuántos folios faltan liquidar', async () => {
+        prepararCajaAbierta(500);
+        conLoteActivo(88);
+
+        await expect(service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR)).rejects.toMatchObject({
+          response: { codigo: 'LOTE_OFFLINE_PENDIENTE', idLote: 7, foliosReservados: 88 },
+        });
+        expect(tx.cierreCaja.create).not.toHaveBeenCalled();
+      });
+
+      it('un lote ya conciliado no estorba', async () => {
+        prepararCajaAbierta(500);
+        tx.loteOffline.findMany.mockResolvedValue([]);
+
+        await expect(
+          service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR),
+        ).resolves.toBeDefined();
+      });
+
+      /**
+       * Si un lote vencido bloqueara, esa caja quedaría imposible de cerrar
+       * esperando que alguien concilie un lote que el dispositivo ya reemplazó. Y
+       * como solo puede haber una caja abierta, se bloquearía la operación entera.
+       */
+      describe('lote vencido', () => {
+        it('no bloquea el cierre: se concilia solo', async () => {
+          prepararCajaAbierta(500);
+          conLoteVencido();
+
+          await expect(
+            service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR),
+          ).resolves.toBeDefined();
+          expect(tx.cierreCaja.create).toHaveBeenCalled();
+        });
+
+        it('sus folios quedan NO_UTILIZADO, no invalidados', async () => {
+          prepararCajaAbierta(500);
+          conLoteVencido();
+
+          await service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR);
+
+          expect(tx.folioReservado.updateMany).toHaveBeenCalledWith({
+            where: { idLote: 5, estado: 'RESERVADO' },
+            data: { estado: 'NO_UTILIZADO' },
+          });
+          expect(tx.loteOffline.update).toHaveBeenCalledWith({
+            where: { id: 5 },
+            data: expect.objectContaining({ estado: 'CONCILIADO' }),
+          });
+        });
+
+        // No destruye ventas a escondidas: queda por qué se cerró solo.
+        it('queda registrado en bitácora', async () => {
+          prepararCajaAbierta(500);
+          conLoteVencido();
+
+          await service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR);
+
+          expect(BitacoraService.registrarEnTransaccion).toHaveBeenCalledWith(
+            tx,
+            expect.objectContaining({ accion: 'CONCILIAR_LOTE_OFFLINE_VENCIDO' }),
+          );
+        });
+
+        // Cerrar un vencido no requiere ser supervisor: no hay nada que decidir.
+        it('un cajero puede cerrar la caja con un lote vencido', async () => {
+          prepararCajaAbierta(500);
+          conLoteVencido();
+          prisma.permisos.findFirst.mockResolvedValue(null);
+
+          await expect(
+            service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR),
+          ).resolves.toBeDefined();
+        });
+
+        // El vencido se cierra, pero el vigente sigue exigiendo sincronizar.
+        it('un vencido y uno vigente juntos: se concilia el vencido y el vigente bloquea', async () => {
+          prepararCajaAbierta(500);
+          tx.loteOffline.findMany.mockResolvedValue([
+            { id: 5, estado: 'ACTIVO', expiraEn: new Date(Date.now() - 8 * 3600_000) },
+            { id: 8, estado: 'ACTIVO', expiraEn: new Date(Date.now() + 8 * 3600_000) },
+          ]);
+
+          await expect(
+            service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR),
+          ).rejects.toMatchObject({ response: { codigo: 'LOTE_OFFLINE_PENDIENTE', idLote: 8 } });
+
+          expect(tx.loteOffline.update).toHaveBeenCalledWith({
+            where: { id: 5 },
+            data: expect.objectContaining({ estado: 'CONCILIADO' }),
+          });
+        });
+      });
+
+      /**
+       * Forzar destruye las ventas que el dispositivo no haya subido. El cajero
+       * tiene `Cajas.Anular`, así que si el permiso fuera ese podría descartar sus
+       * propias ventas pendientes y cerrar sin ellas.
+       */
+      it('forzar exige supervisión, no basta con ser cajero', async () => {
+        prepararCajaAbierta(500);
+        conLoteActivo();
+        prisma.permisos.findFirst.mockResolvedValue(null); // sin Cajas.Editar
+
+        await expect(
+          service.cerrarCaja(1, { montoContado: 500, forzarLoteOffline: true }, EJECUTOR),
+        ).rejects.toThrow(ForbiddenException);
+        expect(tx.loteOffline.update).not.toHaveBeenCalled();
+      });
+
+      it('el supervisor sí puede forzar, e invalida el lote y sus folios', async () => {
+        prepararCajaAbierta(500);
+        conLoteActivo(88);
+
+        await service.cerrarCaja(1, { montoContado: 500, forzarLoteOffline: true }, EJECUTOR);
+
+        expect(tx.folioReservado.updateMany).toHaveBeenCalledWith({
+          where: { idLote: 7, estado: 'RESERVADO' },
+          data: { estado: 'INVALIDADO' },
+        });
+        expect(tx.loteOffline.update).toHaveBeenCalledWith({
+          where: { id: 7 },
+          data: { estado: 'INVALIDADO' },
+        });
+        expect(tx.cierreCaja.create).toHaveBeenCalled();
+      });
+
+      it('forzar queda registrado en bitácora con lo que se pierde', async () => {
+        prepararCajaAbierta(500);
+        conLoteActivo(88);
+
+        await service.cerrarCaja(1, { montoContado: 500, forzarLoteOffline: true }, EJECUTOR);
+
+        expect(BitacoraService.registrarEnTransaccion).toHaveBeenCalledWith(
+          tx,
+          expect.objectContaining({ accion: 'FORZAR_CIERRE_LOTE_OFFLINE' }),
+        );
+      });
+    });
+
+    /**
+     * Sin una cifra propia, un cobro de menos no deja huella: el pago se registró
+     * por lo cobrado, así que el esperado coincide con lo contado y nadie se entera.
+     */
+    describe('discrepancia de ventas offline', () => {
+      const conDiscrepancia = () => {
+        const agregado = {
+          _count: { _all: 2 },
+          _sum: { montoTotal: 150, montoRecalculado: 170 },
+        };
+        tx.ticket.aggregate.mockResolvedValue(agregado);
+        prisma.ticket.aggregate.mockResolvedValue(agregado);
+      };
+
+      it('reporta cuánto se cobró de menos', async () => {
+        prepararCajaAbierta(500);
+        conDiscrepancia();
+
+        const res: any = await service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR);
+
+        expect(res.discrepanciaOffline).toEqual({
+          tickets: 2,
+          montoCobrado: '150',
+          montoRecalculado: '170',
+          diferencia: '-20',
+        });
+      });
+
+      /**
+       * El esperado es el dinero que debería estar en el cajón, y en el cajón está
+       * lo que se cobró. Restar la discrepancia haría aparecer un faltante que en
+       * realidad es un error de tarifa, no de conteo.
+       */
+      it('no altera el monto esperado', async () => {
+        prepararCajaAbierta(500);
+        tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 150 } });
+        conDiscrepancia();
+
+        const { cierre } = await service.cerrarCaja(1, { montoContado: 650 }, EJECUTOR);
+
+        expect(cierre.montoEsperado!.toNumber()).toBe(650);
+        expect(cierre.diferencia!.toNumber()).toBe(0);
+      });
+
+      it('es null cuando ninguna venta offline se cobró mal', async () => {
+        prepararCajaAbierta(500);
+
+        const res: any = await service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR);
+
+        expect(res.discrepanciaOffline).toBeNull();
+      });
+
+      // Misma regla que montoEsperado: quien cobró de menos no ve si lo detectaron.
+      it('se oculta al cajero', async () => {
+        prepararCajaAbierta(500);
+        conDiscrepancia();
+        prisma.permisos.findFirst.mockResolvedValue(null);
+
+        const res: any = await service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR);
+
+        expect(res).not.toHaveProperty('discrepanciaOffline');
+      });
+
+      it('solo cuenta tickets vivos y de origen offline', async () => {
+        prepararCajaAbierta(500);
+        conDiscrepancia();
+
+        await service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR);
+
+        expect(tx.ticket.aggregate.mock.calls[0][0].where).toMatchObject({
+          anulado: false,
+          origenOffline: true,
+          montoRecalculado: { not: null },
+        });
+      });
+    });
 
     it('calcula montoEsperado = inicial + ventas efectivo + donaciones', async () => {
       prepararCajaAbierta(500);

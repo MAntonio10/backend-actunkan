@@ -39,9 +39,23 @@ export class AuthService {
     return (process.env.JWT_ACCESS_EXPIRA || '30m') as `${number}${'s' | 'm' | 'h' | 'd'}`;
   }
 
-  private async firmarAcceso(usuario: { id: number; correo: string; idPuesto: number }) {
+  /**
+   * @param soloSincronizacion Marca el token como de **alcance reducido**: sirve
+   *   únicamente para subir y conciliar ventas offline ya cobradas. Es lo que se
+   *   emite a un usuario dado de baja, para que pueda liquidar su cola sin
+   *   recuperar acceso al sistema. `JwtAuthGuard` es quien lo hace cumplir.
+   */
+  private async firmarAcceso(
+    usuario: { id: number; correo: string; idPuesto: number },
+    soloSincronizacion = false,
+  ) {
     return this.jwtService.signAsync(
-      { sub: usuario.id, email: usuario.correo, idPuesto: usuario.idPuesto },
+      {
+        sub: usuario.id,
+        email: usuario.correo,
+        idPuesto: usuario.idPuesto,
+        ...(soloSincronizacion ? { soloSincronizacion: true } : {}),
+      },
       { expiresIn: this.expiracionAcceso },
     );
   }
@@ -117,7 +131,10 @@ export class AuthService {
       ctx,
     );
 
-    const accessToken = await this.firmarAcceso(usuario);
+    // `rotar` ya se aseguró de que un usuario anulado solo llegue acá si tiene un
+    // lote offline pendiente. El token que recibe queda acotado a liquidarlo.
+    const soloSincronizacion = Boolean(usuario.anulado);
+    const accessToken = await this.firmarAcceso(usuario, soloSincronizacion);
 
     return {
       access_token: accessToken,
@@ -125,6 +142,14 @@ export class AuthService {
       token_type: 'Bearer',
       expires_in: this.expiracionAcceso,
       refresh_expira: sesion.fechaExpiracion,
+      ...(soloSincronizacion
+        ? {
+            solo_sincronizacion: true,
+            aviso:
+              'Su usuario fue deshabilitado. Esta sesión solo permite subir y conciliar las ventas ' +
+              'offline pendientes; el resto del sistema no está disponible.',
+          }
+        : {}),
     };
   }
 

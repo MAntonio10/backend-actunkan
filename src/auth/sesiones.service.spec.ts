@@ -32,6 +32,8 @@ describe('SesionesService', () => {
       },
       $transaction: jest.fn((ops: any[]) => Promise.all(ops)),
       bitacora: { create: jest.fn() },
+      // Por defecto, un usuario anulado no tiene nada pendiente que liquidar.
+      loteOffline: { findFirst: jest.fn().mockResolvedValue(null) },
     };
 
     jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
@@ -131,6 +133,57 @@ describe('SesionesService', () => {
         sesionVigente({ usuario: { ...USUARIO, anulado: true } }),
       );
       await expect(service.rotar('token')).rejects.toThrow(UnauthorizedException);
+    });
+
+    /**
+     * La única excepción a la baja: un taquillero al que dan de baja mientras está
+     * sin conexión tiene ventas ya cobradas en la cola. Bloquearlo no las deshace,
+     * solo deja la caja con dinero que ningún ticket respalda.
+     */
+    describe('usuario anulado con ventas offline pendientes', () => {
+      const conLotePendiente = () => {
+        prisma.sesionRefresh.findUnique.mockResolvedValue(
+          sesionVigente({ usuario: { ...USUARIO, anulado: true } }),
+        );
+        prisma.loteOffline.findFirst.mockResolvedValue({ id: 7, estado: 'ACTIVO' });
+      };
+
+      it('puede rotar el refresh para poder liquidarlas', async () => {
+        conLotePendiente();
+
+        await expect(service.rotar('token')).resolves.toHaveProperty('refreshToken');
+      });
+
+      it('el derecho está atado a que el lote siga activo y sin vencer', async () => {
+        conLotePendiente();
+        await service.rotar('token');
+
+        expect(prisma.loteOffline.findFirst.mock.calls[0][0].where).toMatchObject({
+          idUsuario: USUARIO.id,
+          estado: 'ACTIVO',
+        });
+        expect(prisma.loteOffline.findFirst.mock.calls[0][0].where.expiraEn).toHaveProperty('gt');
+      });
+
+      // Sin nada que liquidar, la baja es total.
+      it('sin lote pendiente sigue rechazándose', async () => {
+        prisma.sesionRefresh.findUnique.mockResolvedValue(
+          sesionVigente({ usuario: { ...USUARIO, anulado: true } }),
+        );
+        prisma.loteOffline.findFirst.mockResolvedValue(null);
+
+        await expect(service.rotar('token')).rejects.toThrow(UnauthorizedException);
+      });
+
+      it('queda registrado en bitácora que fue un usuario anulado', async () => {
+        conLotePendiente();
+        await service.rotar('token');
+
+        expect(BitacoraService.registrarEnTransaccion).toHaveBeenCalledWith(
+          prisma,
+          expect.objectContaining({ accion: 'REFRESH_USUARIO_ANULADO' }),
+        );
+      });
     });
 
     // Reutilizar un token ya rotado delata que alguien más lo tiene.

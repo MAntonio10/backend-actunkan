@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
+import { PERMITE_USUARIO_ANULADO_KEY } from '../../common/decorators/permite-usuario-anulado.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -58,13 +59,32 @@ export class JwtAuthGuard implements CanActivate {
         );
       }
 
-      if (usuario.anulado) {
+      // Sincronizar lo ya vendido es lo único que sobrevive a una baja, y solo
+      // en los handlers que lo declaran. Ver el decorador para el porqué.
+      const permiteAnulado = this.reflector.getAllAndOverride<boolean>(
+        PERMITE_USUARIO_ANULADO_KEY,
+        [context.getHandler(), context.getClass()],
+      );
+
+      if (usuario.anulado && !permiteAnulado) {
         throw new UnauthorizedException(
           `El usuario '${usuario.nombre}' (${usuario.correo}) ha sido desactivado/anulado en el sistema. Acceso denegado.`,
         );
       }
 
-      request.user = usuario;
+      /**
+       * Un token emitido para un usuario anulado viene marcado. Si no lo
+       * rechazáramos acá, bastaría refrescar tras la baja para recuperar acceso
+       * completo al sistema y la baja no serviría de nada: el token es válido y
+       * el usuario podría volver a activarse mientras tanto.
+       */
+      if (payload.soloSincronizacion && !permiteAnulado) {
+        throw new UnauthorizedException(
+          'Este token solo permite sincronizar ventas offline pendientes. Vuelva a iniciar sesión.',
+        );
+      }
+
+      request.user = { ...usuario, soloSincronizacion: Boolean(payload.soloSincronizacion) };
       return true;
     } catch (error) {
       if (error instanceof UnauthorizedException) {

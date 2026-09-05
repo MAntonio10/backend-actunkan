@@ -52,6 +52,8 @@ Respuesta de `POST /auth/login` y `POST /auth/refresh`:
 ```
 > `login` incluye además el objeto `usuario`.
 
+**Una excepción, acotada:** un usuario **dado de baja** puede renovar su sesión si —y solo si— tiene ventas offline sin liquidar. En ese caso la respuesta trae `solo_sincronizacion: true` y el token que recibe **no sirve para nada más que subir y conciliar esas ventas**. Ver sección 18.6.
+
 **Límite de peticiones por IP** (`@nestjs/throttler`, primer guard global):
 
 | Alcance | Límite | Respuesta al excederlo |
@@ -77,6 +79,8 @@ Respuesta de `POST /auth/login` y `POST /auth/refresh`:
 | `TICKET_SERIE` | No | Serie del folio correlativo (por defecto `TCK`) |
 | `THROTTLE_LIMITE` / `THROTTLE_TTL_SEGUNDOS` | No | Límite global de peticiones (120 / 60 s) |
 | `TRUST_PROXY` | No | `true` solo detrás de un proxy inverso de confianza |
+| `UPLOADS_DIR` | No | Carpeta raíz de archivos subidos (por defecto `./uploads`). Las imágenes de actividades van a `<UPLOADS_DIR>/actividades` |
+| `OFFLINE_EXPIRA_HORA` | No | Hora a la que vence un lote de folios offline (por defecto `6`) |
 | `SMTP_*` | Sí para correos | Configuración de Nodemailer |
 
 ## Estructura de permisos
@@ -88,6 +92,8 @@ El sistema se organiza en **módulos generales**, que pueden agrupar **sub-módu
 | `EmisionTickets` | — | Todo lo relacionado a tickets: emisión, historial, validación de QR, tarifas y la lectura de catálogos (atracciones, guías, países, tipos, formas de pago) |
 | `Cajas` | `Gastos` | Apertura, cierre y arqueo. `Gastos` es sub-módulo con permisos propios (incluye el catálogo de tipos de gasto) |
 | `Usuarios` | `Puestos` | Usuarios, puestos y todo el catálogo de permisos (`/modulos`, `/acciones`, `/modulo-acciones`) |
+| `Donaciones` | — | Registro, consulta y anulación de recibos de donación |
+| `ActividadesParque` | — | Publicación y consulta de actividades del parque, con sus imágenes y el catálogo de sectores (`/sectores`) |
 | `Bitacora` | — | Consulta de bitácora |
 
 > **Emisión de Tickets es un módulo general**: atracciones, guías, tarifas y demás catálogos **no** son módulos de permiso aparte. Quien tiene permiso sobre `EmisionTickets` lo tiene sobre todo el módulo, con la granularidad de las 4 acciones.
@@ -102,10 +108,13 @@ Las rutas `/modulos`, `/acciones` y `/modulo-acciones` **exigen permiso sobre `U
 
 El menú **no** depende de ningún permiso: usa `GET /modulos/mis-modulos` (ver 4.7), que solo exige sesión válida. Así, cambiar la asignación de permisos nunca deja a un usuario sin navegación.
 
-Pendientes de implementar (aún sin código): `Donaciones`, `Sincronizacion`, `Reportes`, `ActividadesParque`.
+Pendientes de implementar (aún sin código): `Sincronizacion` y `Reportes`.
+
+> **El permiso no siempre es la última palabra.** En `ActividadesParque`, editar y anular quedan además reservados al **autor** de cada publicación: tener la acción habilita publicar y mantener lo propio, no tocar lo ajeno (ver sección 16).
 
 - **Acciones:** `'Ver'`, `'Crear'`, `'Editar'`, `'Anular'`, `'Exportar'`
 - Un handler **sin** `@RequirePermission` queda accesible a cualquier usuario autenticado (`permissions.guard.ts` es fail-open por diseño), así que toda ruta nueva debe declararlo explícitamente.
+- `@PermiteUsuarioAnulado()` deja pasar a un usuario dado de baja **solo** en ese handler, y hoy está aplicado únicamente en los dos de sincronización offline (18.6). No se hereda ni se activa por omisión.
 
 ## Control de arqueo: qué ve el cajero y qué ve el supervisor
 
@@ -121,6 +130,8 @@ La supervisión se representa con **`Cajas.Editar`**, una acción que quedó lib
 | `montoEsperado` y `diferencia` en el cierre | **Se omiten** | Sí |
 | `GET /cajas/cierres` (historial) | **403** | Sí |
 | Anular un cierre y reabrir la caja | **403** | Sí |
+| `discrepanciaOffline` (cobros offline mal hechos) | **Se omite** | Sí |
+| Forzar el cierre con un lote offline pendiente | **403** | Sí |
 
 > **Anular un cierre exige `Cajas.Editar`, no `Anular`.** De lo contrario el cajero podría cerrar, ver la diferencia, anular y volver a cerrar con la cifra exacta: el arqueo perdería todo valor de control. Con `Anular` sigue pudiendo anular tickets y aperturas equivocadas.
 >
@@ -144,6 +155,27 @@ La supervisión se representa con **`Cajas.Editar`**, una acción que quedó lib
 - **Variables de entorno nuevas:** `TICKET_QR_SECRET` (firma HMAC del QR — si cambia, los pases ya impresos dejan de validar) y `TICKET_SERIE` (serie alfanumérica del folio, default `TCK`).
 - **Permiso único:** todo el módulo se controla con `EmisionTickets` + acción. Los catálogos (atracciones, guías, tarifas, países…) **no** tienen módulo de permiso propio.
 - **Seed:** `npx ts-node prisma/seed-tickets.ts` siembra catálogos y tarifas iniciales; `npx ts-node prisma/reorganizar-modulos.ts` consolida la estructura de módulos generales y sub-módulos.
+
+## Novedades en Venta offline
+- **Se puede vender sin internet:** `/tickets/lotes-offline` y `/tickets/emitir-offline` (sección 18). El servidor entrega folios pre-firmados, el dispositivo los consume sin red y al reconectar sube la cola.
+- **El pase es válido desde la venta:** el QR se firma al reservar el folio, así que el visitante entra aunque el ticket todavía no exista en el servidor.
+- **Un folio reservado no es un pase válido:** `POST /tickets/validar` responde `404` por él hasta que la venta se sube. No hizo falta cambiar nada — los folios viven en su propia tabla, no en `Ticket`.
+- **Idempotencia real:** cada venta lleva un `idLocal` y reintentar la subida no duplica tickets. **Depende de dos índices únicos filtrados que `prisma db push` no crea**; ver 18.7.
+- **La caja no cierra con un lote pendiente:** `POST /cajas/:id/cierre` responde `409`, con salida de emergencia `forzarLoteOffline` para supervisores (8.6).
+- **Los cobros mal hechos salen a la luz:** `discrepanciaOffline` en el arqueo (8.5), oculto al cajero.
+- **Tarifas históricas:** una venta de ayer se recalcula con el precio de ayer, no con el de hoy.
+- **Un usuario dado de baja puede liquidar lo que ya vendió**, y nada más (18.6).
+- **Variable de entorno nueva:** `OFFLINE_EXPIRA_HORA` (opcional, por defecto `6`).
+
+## Novedades en Actividades del Parque
+- **Módulo de planificación:** `/actividades` (sección 16). El autor publica una actividad y define **desde cuándo y hasta cuándo** la ven los demás.
+- **Autoría por encima del permiso:** editar, anular y administrar imágenes son exclusivos del autor. Cualquier otro usuario, aunque tenga la acción, recibe `403`.
+- **Ventana de visibilidad:** fuera del rango de fechas la publicación desaparece para los demás (`404`), pero el autor la sigue viendo marcada como `expirada` o `programada` para poder reprogramarla.
+- **Imágenes en disco, no en la base:** la fila guarda solo el nombre del archivo (~140 bytes); el binario vive en `<UPLOADS_DIR>/actividades`. Meter imágenes en la base la haría crecer sin control y penalizaría cada consulta que tocara la tabla.
+- **Las imágenes se sirven por endpoint, no como archivos estáticos**, para que respeten el permiso del módulo y la ventana de visibilidad.
+- **Catálogo de sectores:** `/sectores` (sección 17), la lista que alimenta el campo `idSectorParque`. Se gobierna con el mismo permiso `ActividadesParque`, no es un módulo aparte.
+- **Variable de entorno nueva:** `UPLOADS_DIR` (opcional; por defecto `./uploads`).
+- **Seed:** `npx ts-node prisma/seed-actividades.ts` registra el módulo `ActividadesParque` con sus 4 acciones. Después, otorgar el permiso con `POST /usuarios/:id/permisos`.
 
 ---
 
@@ -172,6 +204,9 @@ La supervisión se representa con **`Cajas.Editar`**, una acción que quedó lib
 13. [Catálogos de Tickets (`GET /tickets/catalogos`)](#13-catálogos-de-tickets--get-ticketscatalogos)
 14. [Guías (`/guias`)](#14-guías-guias)
 15. [Donaciones (`/donaciones`)](#15-donaciones-donaciones)
+16. [Actividades del Parque (`/actividades`)](#16-actividades-del-parque-actividades)
+17. [Sectores del Parque (`/sectores`)](#17-sectores-del-parque-sectores)
+18. [Venta offline (`/tickets/lotes-offline`)](#18-venta-offline-ticketslotes-offline-ticketsemitir-offline)
 
 ---
 
@@ -1173,10 +1208,22 @@ Calcula el monto esperado sin cerrar la caja, para revisión previa.
   "idApertura": 5,
   "montoInicial": 500,
   "ventasEfectivo": 1250,
-  "totalGastos": 150,
-  "montoEsperado": 1600
+  "totalDonaciones": 100,
+  "montoEsperado": 1850,
+  "discrepanciaOffline": {
+    "tickets": 2,
+    "montoCobrado": "150.0000",
+    "montoRecalculado": "170.0000",
+    "diferencia": "-20.0000"
+  }
 }
 ```
+
+**`discrepanciaOffline`** son las ventas offline en las que se cobró algo distinto de lo que correspondía según la tarifa vigente en el momento de la venta (ver sección 18.3). Es `null` cuando no hay ninguna. `diferencia` negativa = se cobró de menos.
+
+> **No altera `montoEsperado`, y es a propósito.** El esperado es el dinero que debería estar en el cajón, y en el cajón está lo que se cobró. Si la discrepancia se restara, el arqueo cuadraría mal y un error de tarifa aparecería como si el cajero hubiera contado mal.
+>
+> Va como cifra aparte porque, sin ella, un cobro de menos **no deja ninguna huella**: el pago se registró por lo cobrado, el esperado coincide con lo contado, y nadie se entera nunca.
 
 ---
 
@@ -1208,9 +1255,43 @@ Calcula el arqueo, crea el registro de cierre (no editable) y marca la caja como
     "diferencia": "-10.0000",
     "observaciones": "Faltante detectado, se revisará con el cajero",
     "anulado": false
-  }
+  },
+  "discrepanciaOffline": null
 }
 ```
+
+> `discrepanciaOffline` solo viaja para un supervisor, con el mismo criterio que `montoEsperado`: quien cobró de menos no debería ver si el sistema lo detectó.
+
+#### Bloqueo por lote offline pendiente
+
+Si la caja tiene un **lote offline activo**, el cierre responde **`409 Conflict`**:
+
+```json
+{
+  "codigo": "LOTE_OFFLINE_PENDIENTE",
+  "idLote": 7,
+  "foliosReservados": 88,
+  "message": "La caja tiene el lote offline 7 activo, con 88 folios sin liquidar. Suba la cola de ventas del dispositivo y concilie el lote antes de cerrar."
+}
+```
+
+Una venta offline de las 10:00 que se sube a las 16:00 no puede entrar en una caja cerrada a las 14:00 sin corromper un arqueo ya guardado. El taquillero cierra su turno con conexión, que es cuando de todos modos cuenta el efectivo. **Conciliado el lote (18.4), la caja cierra normalmente.**
+
+> **Solo bloquean los lotes vigentes.** Un lote **vencido** no traba el cierre: se concilia automáticamente y la caja cierra. De lo contrario esa caja quedaría imposible de cerrar, esperando que alguien concilie un lote que el dispositivo ya reemplazó — y como solo puede haber una caja abierta en todo el sistema, se bloquearía la operación entera.
+>
+> Cerrar con un lote vencido **no requiere supervisión** ni `forzarLoteOffline`: no hay nada que decidir. Queda en Bitácora como `CONCILIAR_LOTE_OFFLINE_VENCIDO`.
+
+**Salida de emergencia** — dispositivo perdido, roto o que no va a volver:
+
+```json
+{ "montoContado": 1590.00, "forzarLoteOffline": true }
+```
+
+* **Exige `Cajas` + `Editar`** (supervisión). Un cajero recibe **`403`**.
+* Invalida el lote y sus folios pendientes, y queda en Bitácora como `FORZAR_CIERRE_LOTE_OFFLINE`.
+* **Destruye las ventas que el dispositivo no haya subido:** ese dinero queda cobrado sin ticket que lo respalde.
+
+> **El permiso es `Editar` y no `Anular` por la misma razón que anular un cierre.** El cajero **sí** tiene `Cajas.Anular` —lo usa para tickets y aperturas equivocadas—, así que pedir `Anular` acá le permitiría descartar sus propias ventas offline pendientes y cerrar la caja sin ellas.
 
 ---
 
@@ -1514,11 +1595,22 @@ Emisión de boletos del parque. Reglas que aplica el servidor:
   "pagina": 1,
   "limite": 50,
   "metricas": {
-    "totalTickets": 128,
-    "totalPersonas": 412,
-    "montoRecaudado": "8450.0000"
+    "totalTickets": 133,
+    "ticketsVigentes": 12,
+    "totalPersonas": 15,
+    "montoRecaudado": "305.0000",
+    "ticketsAnulados": 121,
+    "montoAnulado": "3048.0000"
   }
 }
+```
+
+> **`montoRecaudado` y `totalPersonas` nunca cuentan tickets anulados**, ni siquiera con `incluirAnulados=true`. Un ticket anulado no cobró nada ni dejó entrar a nadie, y ya salió del arqueo de su caja.
+
+Igual que en donaciones, las cifras describen el mismo conjunto que el listado:
+
+```
+totalTickets = ticketsVigentes + ticketsAnulados
 ```
 
 ---
@@ -1781,11 +1873,26 @@ Reglas del módulo:
   "pagina": 1,
   "limite": 50,
   "metricas": {
-    "totalRecibos": 2,
-    "montoRecaudado": "300.5000"
+    "totalRecibos": 25,
+    "recibosVigentes": 1,
+    "montoRecaudado": "100.0000",
+    "recibosAnulados": 24,
+    "montoAnulado": "683.5000"
   }
 }
 ```
+
+> **`montoRecaudado` nunca cuenta recibos anulados**, ni siquiera con `incluirAnulados=true`. Un recibo anulado no recaudó nada: ese dinero salió del arqueo al anularlo (15.6). Si el total lo sumara, bastaría marcar la casilla de anulados para ver una recaudación que no existe.
+>
+> `montoAnulado` y `recibosAnulados` se exponen aparte para que la diferencia sea explicable en pantalla en vez de parecer un error de cuadre.
+
+**Las cifras describen el mismo conjunto que el listado**, así que siempre se cumple:
+
+```
+totalRecibos = recibosVigentes + recibosAnulados
+```
+
+Sin `incluirAnulados=true`, `recibosAnulados` y `montoAnulado` son `0` — los anulados no están en la lista, así que tampoco se cuentan.
 
 ---
 
@@ -1848,3 +1955,590 @@ montoEsperado = montoInicial + ventas en efectivo + donaciones − gastos
 
 Anular un recibo lo descuenta de inmediato: solo cuentan las donaciones **no anuladas** de esa caja.
 
+---
+
+## 16. Actividades del Parque (`/actividades`)
+
+Planificación y difusión interna de actividades. Un usuario **publica** una actividad y define la **ventana de tiempo** durante la cual el resto la ve.
+
+Reglas del módulo:
+
+- **La autoría manda sobre el permiso.** Editar, anular, subir y borrar imágenes son exclusivos del **autor** de la publicación. Cualquier otro usuario recibe `403`, aunque tenga la acción `Editar` o `Anular`. El permiso habilita publicar y mantener lo propio, no tocar lo ajeno.
+- **El autor no se puede cambiar.** Es lo que define quién puede editar; permitir reasignarlo sería una forma de ceder ese control.
+- **Ventana de visibilidad.** `fechaInicio` marca desde cuándo la ven los demás; `fechaFin` hasta cuándo. **Sin `fechaFin`, la publicación no expira.**
+- **Fuera de la ventana desaparece para los demás** (`404`), pero **el autor la sigue viendo**, marcada como `expirada` o `programada`, para poder reprogramarla en lugar de tener que republicarla.
+- **No hay exclusión por usuario:** toda persona con el permiso `Ver` ve las publicaciones vigentes. La visibilidad se controla únicamente con las fechas.
+- **Anular es baja lógica** (`anulado: true`); la fila y sus imágenes se conservan.
+- **Responsable opcional** (`idUsuarioResponsable`): quien ejecuta la actividad, que puede no ser quien la publica. No otorga permiso de edición.
+
+**Permisos:** módulo `ActividadesParque` con las acciones `Ver`, `Crear`, `Editar` y `Anular`. Registrar con `npx ts-node prisma/seed-actividades.ts`.
+
+| Acción | Habilita |
+|---|---|
+| `Ver` | Listar y consultar publicaciones vigentes, y descargar sus imágenes |
+| `Crear` | Publicar una actividad nueva |
+| `Editar` | Editar **las propias** y administrar sus imágenes |
+| `Anular` | Anular **las propias** |
+
+---
+
+### 16.1 `POST /actividades` (Publicar actividad)
+* **Permiso requerido:** `Módulo: 'ActividadesParque'`, `Acción: 'Crear'`
+* **Request Body (JSON):**
+```json
+{
+  "nombreActividad": "Jornada de reforestación",
+  "descripcionActividad": "Siembra de 200 árboles en el sector norte. Llevar guantes.",
+  "fechaInicio": "2026-08-20T14:00:00.000Z",
+  "fechaFin": "2026-08-30T23:59:00.000Z",
+  "idSectorParque": 1,
+  "idUsuarioResponsable": 5
+}
+```
+
+| Campo | Obligatorio | Reglas |
+|---|---|---|
+| `nombreActividad` | Sí | Texto, de 3 a 255 caracteres |
+| `descripcionActividad` | Sí | Texto, máximo 5000 caracteres |
+| `fechaInicio` | Sí | ISO 8601. Desde cuándo se muestra a los demás |
+| `fechaFin` | No | ISO 8601, **posterior** a `fechaInicio`. Omitirla = no expira |
+| `idSectorParque` | No | Debe existir y no estar anulado |
+| `idUsuarioResponsable` | No | Debe existir y no estar anulado |
+
+> El **autor se toma del token**, nunca del body. Enviar `idUsuarioAutor` devuelve `400` (el `ValidationPipe` rechaza campos no declarados).
+
+* **Response (201 Created - JSON):** Ver la forma completa en 16.6.
+* **Errores:** `400` si `fechaFin` no es posterior a `fechaInicio`, o si el sector o el responsable no existen o están anulados.
+
+---
+
+### 16.2 `GET /actividades` (Listado)
+* **Permiso requerido:** `Módulo: 'ActividadesParque'`, `Acción: 'Ver'`
+* **Query Params (todos opcionales):**
+
+| Parámetro | Efecto |
+|---|---|
+| `buscar` | Busca en nombre y descripción |
+| `idSectorParque` | Filtra por sector |
+| `idUsuarioAutor` | Filtra por autor |
+| `soloMias=true` | Solo las publicaciones del usuario autenticado |
+| `incluirAnuladas=true` | Suma las anuladas **propias**. Las ajenas anuladas no se muestran nunca |
+| `soloAnuladas=true` | Devuelve **solo** las anuladas, para una vista de papelera. Tiene prioridad sobre `incluirAnuladas` |
+| `incluirExpiradas=true` | **Sin efecto**, se conserva por compatibilidad (ver abajo) |
+| `pagina` | Por defecto `1` |
+| `limite` | Por defecto `20`, máximo `100` |
+
+* **Response (200 OK - JSON):**
+```json
+{
+  "datos": [ /* actividades con la forma de 16.6 */ ],
+  "total": 2,
+  "pagina": 1,
+  "limite": 20
+}
+```
+
+Ordenado por `fechaInicio` descendente. **Un mismo listado devuelve distinto `total` según quién pregunte**: el autor ve además sus publicaciones expiradas y programadas.
+
+> **El listado nunca muestra lo que el detalle oculta.** Ningún parámetro de consulta permite ver publicaciones ajenas anuladas o fuera de su ventana: lo que `GET /actividades/:id` responde con `404`, el listado tampoco lo devuelve. **El frontend no necesita filtrar nada del lado del cliente** — y no debe hacerlo, porque `total` se calcula con el mismo filtro que las filas y un filtrado adicional en pantalla desalinearía la paginación.
+>
+> `incluirExpiradas` quedó **sin efecto**: las publicaciones propias fuera de su ventana ya vienen siempre, y las ajenas nunca. Se mantiene aceptado para no romper a los clientes que aún lo envían (`forbidNonWhitelisted` respondería `400` si se quitara del DTO). Puede dejar de enviarlo.
+
+**Vista de papelera:** `?soloAnuladas=true` devuelve únicamente las anuladas. Como las anuladas ajenas no se muestran nunca, en la práctica equivale a *"mis publicaciones anuladas"* — un tercero que lo use recibe una lista vacía, aunque agregue `idUsuarioAutor`. Tiene **prioridad sobre `incluirAnuladas`**, mismo criterio que `soloAnulados` en el historial de cierres de caja (sección 8.9). Se combina con el resto de filtros: `?soloAnuladas=true&buscar=jornada` busca dentro de la papelera.
+
+> Ambos parámetros comparan contra la cadena exacta `'true'`. Cualquier otro valor (`1`, `si`, `TRUE`) se ignora y el listado se comporta como si no se hubiera enviado.
+
+---
+
+### 16.3 `GET /actividades/:id` (Detalle)
+* **Permiso requerido:** `Módulo: 'ActividadesParque'`, `Acción: 'Ver'`
+* **Response (200 OK - JSON):** Ver 16.6.
+* **Errores:** `404` si no existe, y también si la publicación está **fuera de su ventana o anulada y quien consulta no es el autor**. Se responde `404` y no `403` a propósito: para un tercero, una publicación fuera de su ventana simplemente no existe.
+
+---
+
+### 16.4 `PATCH /actividades/:id` (Editar) y `DELETE /actividades/:id` (Anular)
+* **Permisos:** `Editar` y `Anular` respectivamente, **y ser el autor**.
+* **Body de `PATCH`:** los mismos campos de 16.1, todos opcionales. Enviar `"fechaFin": null` **quita** la expiración.
+* **Response (200 OK - JSON):** La actividad actualizada (16.6).
+* **Errores:**
+  * `403` — `"Solo el autor de la publicación puede modificarla o anularla."`
+  * `400` — al editar una publicación anulada, al anular una ya anulada, o si la ventana queda invertida.
+  * `404` — la actividad no existe.
+
+`DELETE` es baja lógica: deja `anulado: true` y la publicación desaparece para los demás.
+
+---
+
+### 16.5 Imágenes
+
+Las imágenes se guardan **en disco**, en `<UPLOADS_DIR>/actividades`; en la base queda solo el nombre del archivo. Así una fila pesa unos cientos de bytes en vez de megabytes, y los backups y las consultas no cargan con los binarios.
+
+El nombre del archivo **lo genera el servidor** (`<timestamp>-<16 hex><ext>`). El nombre que envía el cliente se conserva solo como dato (`nombreOriginal`) y nunca se usa como ruta: `../../.env` quedaría guardado como `1787040704589-ecc7367c2a1f2153.img`.
+
+| Restricción | Valor |
+|---|---|
+| Formatos aceptados | `image/jpeg`, `image/png`, `image/webp`, `image/gif` |
+| Tamaño máximo | 5 MB por archivo |
+| Cantidad | Sin límite; se ordenan por el campo `orden` (0, 1, 2…) |
+
+#### `POST /actividades/:id/imagenes` (Subir imagen)
+* **Permiso requerido:** `Módulo: 'ActividadesParque'`, `Acción: 'Editar'`, **y ser el autor**
+* **Request:** `multipart/form-data` con el archivo en el campo **`imagen`**.
+
+```js
+const fd = new FormData();
+fd.append('imagen', archivo);
+await fetch(`/actividades/${id}/imagenes`, {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${token}` }, // sin Content-Type: lo pone el navegador
+  body: fd,
+});
+```
+
+* **Response (201 Created - JSON):**
+```json
+{
+  "id": 7,
+  "archivo": "1787040704507-50052835f0a199f6.png",
+  "nombreOriginal": "reforestacion.png",
+  "mimeType": "image/png",
+  "orden": 0
+}
+```
+* **Errores:** `400` si el formato no está permitido o supera los 5 MB; `403` si no es el autor.
+
+#### `GET /actividades/:id/imagenes/:idImagen` (Descargar imagen)
+* **Permiso requerido:** `Módulo: 'ActividadesParque'`, `Acción: 'Ver'`
+* **Response:** el binario, con `Content-Type` del archivo y `Cache-Control: private, max-age=86400`.
+
+Va por endpoint y **no** como archivo estático justamente para que respete el permiso y la ventana de visibilidad: si la publicación no es visible para quien pide, la imagen tampoco lo es (`404`).
+
+> Como exige el header `Authorization`, un `<img src="...">` directo **no funciona**. En el frontend hay que pedirla con `fetch`, convertirla a `blob` y usar `URL.createObjectURL(blob)` como `src`.
+
+#### `DELETE /actividades/:id/imagenes/:idImagen` (Eliminar imagen)
+* **Permiso requerido:** `Módulo: 'ActividadesParque'`, `Acción: 'Editar'`, **y ser el autor**
+* **Response (200 OK - JSON):** `{ "mensaje": "Imagen eliminada.", "id": 7 }`
+
+A diferencia del resto del sistema, esto **sí borra**: la fila de la imagen y el archivo del disco. Una imagen no es un registro contable, y conservar archivos huérfanos solo llenaría el disco. La actividad que la contiene sigue intacta.
+
+---
+
+### 16.6 Forma completa de la actividad
+
+```json
+{
+  "id": 1,
+  "idUsuarioAutor": 3,
+  "idUsuarioResponsable": 5,
+  "idSectorParque": 1,
+  "nombreActividad": "Jornada de reforestación",
+  "descripcionActividad": "Siembra de 200 árboles en el sector norte.",
+  "fechaInicio": "2026-08-20T14:00:00.000Z",
+  "fechaFin": "2026-08-30T23:59:00.000Z",
+  "fechaCreacion": "2026-08-18T10:00:00.000Z",
+  "fechaActualizacion": "2026-08-18T10:00:00.000Z",
+  "anulado": false,
+
+  "vigente": true,
+  "expirada": false,
+  "programada": false,
+  "esAutor": true,
+
+  "autor":       { "id": 3, "nombre": "Jose Sandoval", "correo": "..." },
+  "responsable": { "id": 5, "nombre": "Ana López",     "correo": "..." },
+  "sector":      { "id": 1, "nombre": "Sector Norte" },
+  "imagenes": [
+    {
+      "id": 7,
+      "archivo": "1787040704507-50052835f0a199f6.png",
+      "nombreOriginal": "reforestacion.png",
+      "mimeType": "image/png",
+      "tamanoBytes": 23057,
+      "orden": 0
+    }
+  ]
+}
+```
+
+**Campos calculados por el servidor** — el frontend no debe recalcularlos comparando fechas:
+
+| Campo | Significado |
+|---|---|
+| `vigente` | Está dentro de su ventana y no anulada. Es la que se muestra al público del módulo |
+| `expirada` | Ya pasó su `fechaFin`. Solo la ve el autor |
+| `programada` | Aún no llega su `fechaInicio`. Solo la ve el autor |
+| `esAutor` | El usuario autenticado es el autor. Úselo para mostrar u ocultar los botones de editar, anular y subir imágenes |
+
+> `esAutor` es una ayuda para la interfaz, no un control: el servidor verifica la autoría en cada operación de escritura.
+>
+> `fechaInicio` y `fechaFin` se comparan contra la **hora real** del servidor, no contra el reloj desplazado a UTC-6 que sella `fechaCreacion` en el resto del sistema. Envíelas siempre en ISO 8601 con zona (`...Z` o con desfase explícito).
+
+---
+
+## 17. Sectores del Parque (`/sectores`)
+
+Catálogo de las zonas del parque. Es la lista que alimenta el campo `idSectorParque` al publicar una actividad (sección 16).
+
+**No es un módulo de permiso aparte:** se gobierna con `ActividadesParque`, igual que los catálogos de la emisión de tickets viven bajo `EmisionTickets`. Quien puede publicar actividades puede crear los sectores que necesite.
+
+| Endpoint | Permiso | Efecto |
+|---|---|---|
+| `POST /sectores` | `ActividadesParque` + `Crear` | Crear sector |
+| `GET /sectores` | `ActividadesParque` + `Ver` | Listar, ordenados por nombre |
+| `GET /sectores/:id` | `ActividadesParque` + `Ver` | Detalle |
+| `PATCH /sectores/:id` | `ActividadesParque` + `Editar` | Renombrar |
+| `PATCH /sectores/:id/activar` | `ActividadesParque` + `Editar` | Reactivar uno anulado |
+| `DELETE /sectores/:id` | `ActividadesParque` + `Anular` | Baja lógica |
+
+Reglas del módulo:
+
+- **Nombre único**, de 3 a 255 caracteres. Se le recortan los espacios de los extremos antes de guardarlo.
+- **El nombre repetido se rechaza con `409`, incluso si el sector existente está anulado.** En ese caso el mensaje indica que hay que reactivarlo: dos filas con el mismo nombre volverían indistinguibles las opciones del selector.
+- **`DELETE` es baja lógica.** El sector desaparece del listado, pero **las actividades ya publicadas conservan el suyo**: anularlo lo retira del selector, no reescribe el historial.
+- Un sector anulado **no se puede asignar** a una actividad nueva: `POST /actividades` devuelve `400`.
+
+---
+
+### 17.1 `POST /sectores` (Crear sector)
+* **Permiso requerido:** `Módulo: 'ActividadesParque'`, `Acción: 'Crear'`
+* **Request Body (JSON):**
+```json
+{ "nombre": "Sector Norte" }
+```
+* **Response (201 Created - JSON):**
+```json
+{
+  "id": 1,
+  "nombre": "Sector Norte",
+  "fechaCreacion": "2026-08-18T02:34:00.000Z",
+  "fechaActualizacion": "2026-08-18T02:34:00.000Z",
+  "anulado": false
+}
+```
+* **Errores:** `409` si el nombre ya existe; `400` si tiene menos de 3 caracteres.
+
+---
+
+### 17.2 `GET /sectores` (Listar) y `GET /sectores/:id` (Detalle)
+* **Permiso requerido:** `Módulo: 'ActividadesParque'`, `Acción: 'Ver'`
+* **Query Param (solo en el listado):** `incluirAnulados=true`
+* **Response (200 OK - JSON):** Cada sector incluye cuántas actividades lo usan, para poder advertir antes de anularlo:
+```json
+[
+  {
+    "id": 1,
+    "nombre": "Sector Norte",
+    "fechaCreacion": "2026-08-18T02:34:00.000Z",
+    "fechaActualizacion": "2026-08-18T02:34:00.000Z",
+    "anulado": false,
+    "_count": { "actividades": 3 }
+  }
+]
+```
+> El listado es un arreglo plano, sin paginación: es un catálogo corto que alimenta un selector.
+
+`GET /sectores/:id` devuelve un solo objeto con la misma forma, o `404` si no existe.
+
+---
+
+### 17.3 `PATCH /sectores/:id` (Renombrar), `PATCH /sectores/:id/activar` y `DELETE /sectores/:id`
+* **Permisos:** `Editar` para los dos `PATCH`, `Anular` para el `DELETE`.
+* **Body de `PATCH /sectores/:id`:**
+```json
+{ "nombre": "Sector Norte alto" }
+```
+* **Response (200 OK - JSON):** El sector resultante.
+* **Errores:**
+  * `409` — el nombre pertenece a otro sector.
+  * `400` — anular uno ya anulado, o activar uno que ya está activo.
+  * `404` — el sector no existe.
+
+Renombrar un sector se refleja de inmediato en todas las actividades que lo usan, porque se guarda la referencia y no una copia del nombre.
+
+
+---
+
+## 18. Venta offline (`/tickets/lotes-offline`, `/tickets/emitir-offline`)
+
+Permite vender tickets **sin conexión a internet**, entregando al visitante un pase con QR **válido desde el momento de la venta**.
+
+La idea es simple: el servidor entrega **folios pre-firmados** mientras hay red; el dispositivo los consume después, sin ella; al reconectar sube la cola y cada folio se convierte en un ticket real.
+
+Diseño completo en `ESPECIFICACION_OFFLINE.md`.
+
+### Conceptos
+
+| Término | Qué es |
+|---|---|
+| **Folio reservado** | Un número de ticket con su firma HMAC, generado **antes** de que exista la venta |
+| **Lote** | Un bloque de folios, atado a un usuario, un dispositivo y **la caja abierta al reservarlo** |
+
+Estados del folio:
+
+```
+                    ┌─── conciliar ──────────> NO_UTILIZADO
+RESERVADO ──────────┼─── invalidar el lote ──> INVALIDADO
+                    └─── emitir-offline ─────> EMITIDO ──validar──> EMITIDO + fechaUso
+```
+
+> **Solo un folio `EMITIDO` autoriza el ingreso.** Un folio reservado tiene firma criptográficamente válida pero no corresponde a ninguna venta. Como vive en su propia tabla y no en `Ticket`, **`POST /tickets/validar` responde `404`** por él, idéntico a un folio inexistente — sin mensaje que revele que existe, para no confirmarle a nadie que el rango del bloque es real.
+
+**Permisos:** todo se gobierna con `EmisionTickets`, igual que el resto de la emisión.
+
+**Solo efectivo.** Sin conexión no hay pasarela, así que no hay cobro con tarjeta: cualquier otra forma de pago se rechaza al subir.
+
+---
+
+### 18.1 `POST /tickets/lotes-offline` (Reservar folios)
+* **Permiso requerido:** `Módulo: 'EmisionTickets'`, `Acción: 'Crear'`
+* **Request Body (JSON):**
+```json
+{ "cantidad": 100, "idDispositivo": "b3f1c2d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d" }
+```
+
+| Campo | Reglas |
+|---|---|
+| `cantidad` | Entero de 1 a 200 |
+| `idDispositivo` | UUID persistente que genera el navegador; máximo 64 caracteres |
+
+* **Exige caja abierta** (`400` si no hay). La caja **no la envía el cliente**: se toma la abierta actual.
+
+* **Response (201 Created - JSON):**
+```json
+{
+  "idLote": 7,
+  "idAperturaCaja": 12,
+  "idUsuario": 3,
+  "idDispositivo": "b3f1c2d4-…",
+  "estado": "ACTIVO",
+  "fechaCreacion": "2026-08-20T13:00:00.000Z",
+  "expiraEn": "2026-08-21T06:00:00.000Z",
+  "expirado": false,
+  "folios": [
+    {
+      "numeroTicket": "TCK-2026-000101",
+      "firma": "9f2a7c…",
+      "qr": "{\"numeroTicket\":\"TCK-2026-000101\",\"firma\":\"9f2a7c…\"}"
+    }
+  ]
+}
+```
+
+> **El campo `qr` viene armado por el servidor**, en el mismo formato exacto que la emisión online. No lo reconstruya en el frontend: un cambio futuro de formato rompería los pases offline en silencio y el problema aparecería recién en la puerta de la cueva.
+
+* **Errores:**
+
+```json
+{ "codigo": "LOTE_ACTIVO_EXISTENTE", "idLote": 7 }
+```
+`409` si ese dispositivo ya tiene un lote activo. Concílielo primero, o recupérelo con 18.2.
+
+> **Pida lotes chicos, no el máximo por costumbre.** Cada folio que quede sin vender consume un número del correlativo y deja un hueco permanente en la numeración. Lotes chicos también limitan el daño si se pierde el dispositivo.
+>
+> **Los lotes vencidos de ese dispositivo se concilian solos al reservar el nuevo.** No hace falta conciliar el anterior antes de reemplazarlo: el frontend solo conoce su lote *actual*, y el viejo puede ni estar en el dispositivo (se reinstaló, se borró el almacenamiento, es otro aparato). Sus folios pasan a `NO_UTILIZADO` y queda registro en Bitácora.
+>
+> **Sincronice antes de que termine la jornada.** Una venta que no se haya subido cuando el lote vence ya no se puede subir: sus folios dejan de estar disponibles.
+
+---
+
+### 18.2 `GET /tickets/lotes-offline/activo` (Recuperar el lote)
+* **Permiso requerido:** `Módulo: 'EmisionTickets'`, `Acción: 'Ver'`
+* **Query Param:** `idDispositivo` (obligatorio)
+
+Para cuando se reinstala la aplicación o se borra el almacenamiento local. Sin esto los folios quedan inutilizables hasta que expiren y el taquillero no puede vender.
+
+* **Response (200 OK - JSON):**
+```json
+{ "hayLoteActivo": true, "lote": { "…": "misma forma que 18.1" } }
+```
+o `{ "hayLoteActivo": false, "lote": null }`.
+
+Solo devuelve los folios que siguen en `RESERVADO`.
+
+> **Exige que coincidan usuario y dispositivo.** Este endpoint vuelve a exponer folios pre-firmados; desde otra sesión responde `hayLoteActivo: false`, no los entrega.
+
+---
+
+### 18.3 `POST /tickets/emitir-offline` (Subir la cola de ventas)
+* **Permiso requerido:** `Módulo: 'EmisionTickets'`, `Acción: 'Crear'`
+* **Request Body (JSON):** hasta **50 ventas** por llamada.
+```json
+{
+  "idLote": 7,
+  "ventas": [
+    {
+      "idLocal": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "numeroTicket": "TCK-2026-000101",
+      "numeroTicketGuia": "TCK-2026-000102",
+      "fechaEmision": "2026-08-20T14:32:11.000Z",
+      "montoCobrado": "85.00",
+
+      "nombreGrupo": "Familia Rodríguez",
+      "idAtraccion": 1,
+      "idOrigen": 1,
+      "idPais": null,
+      "idTipoRecorrido": 1,
+      "cantidades": [{ "idTipoVisitante": 1, "cantidad": 2 }],
+      "idOpcionPago": 1,
+      "notas": "Grupo con reserva previa",
+      "guia": { "modo": "nuevo", "nombre": "Pedro Ak'abal", "tieneCarnet": false }
+    }
+  ]
+}
+```
+
+Todo lo que va después de `montoCobrado` es el payload de `POST /tickets/emitir` sin cambios.
+
+| Campo | Notas |
+|---|---|
+| `idLocal` | **UUID de 36 caracteres**, generado por el dispositivo. Es la clave de idempotencia |
+| `numeroTicket` | Folio reservado que el dispositivo ya imprimió |
+| `numeroTicketGuia` | Segundo folio, solo si la venta lleva guía sin carnet |
+| `fechaEmision` | ISO 8601. Momento real de la venta |
+| `montoCobrado` | **Texto**, no número: evita perder centavos en el punto flotante de JSON |
+
+> **No se acepta marcar el ingreso en la misma llamada.** No existe un campo tipo `fechaUsoOffline`: subir la venta y validar el pase son dos actos distintos, y el segundo sigue siendo `POST /tickets/validar`. Enviar cualquier campo no declarado devuelve **`400`** (`forbidNonWhitelisted`), no se ignora en silencio.
+
+* **Response (200 OK - JSON):** éxito parcial. **Nunca un `4xx` para el lote completo** si al menos un ítem es válido — el resto corresponde a dinero que ya entró al cajón.
+```json
+{
+  "procesadas": 2,
+  "resultados": [
+    { "idLocal": "f47ac10b-…", "estado": "CREADO", "discrepancia": null, "ticket": { "…": "TicketBackend" } },
+    { "idLocal": "a91bd22c-…", "estado": "DUPLICADO_IGNORADO", "ticket": { "…": "…" } },
+    { "idLocal": "c02ef88a-…", "estado": "RECHAZADO", "codigo": "FOLIO_YA_EMITIDO", "mensaje": "…" }
+  ]
+}
+```
+
+**Códigos de rechazo:**
+
+| Código | Significa |
+|---|---|
+| `FOLIO_NO_RESERVADO` | El folio no existe, o ya no está disponible |
+| `FOLIO_YA_EMITIDO` | **El dispositivo gastó dos veces el mismo folio**: hay una venta cobrada que se va a perder. Hay que investigarla |
+| `FOLIO_DE_OTRO_LOTE` | El folio pertenece a otro lote |
+| `LOTE_INVALIDADO` | El lote se invalidó; ninguna venta suya puede subirse |
+| `PAGO_NO_EFECTIVO` | Offline solo se vende en efectivo |
+| `CATALOGO_INVALIDO` | Datos de la venta inválidos (atracción, país, categoría…) |
+
+> El resultado **por ítem** es lo que le permite al frontend distinguir *"no hubo red, reintento"* de *"el servidor lo rechazó, aviso al taquillero y no reintento"*. Sin esa distinción, la cola reintenta para siempre una venta que nunca va a entrar.
+
+#### Reglas que aplica el servidor
+
+1. **Idempotencia.** Un `idLocal` ya registrado devuelve `DUPLICADO_IGNORADO` sin crear nada. Es lo que permite reintentar tras un timeout ambiguo. *(Garantizado por un índice único; ver 18.7.)*
+2. **La caja es la del lote**, no la que esté abierta al subir: la venta ocurrió en aquel turno y ahí tiene que cuadrar.
+3. **La fecha del dispositivo se acota** al rango `[creación del lote, ahora]`. Viene del reloj del aparato y no es confiable; un reloj mal puesto mandaría la venta al arqueo de otro día.
+4. **El precio se recalcula con la tarifa vigente en `fechaEmision`**, no con la de hoy. Una venta de ayer se recalcula con el precio de ayer.
+5. **Un guía nuevo repetido se reutiliza.** Offline es normal que el mismo guía acompañe a varios grupos del turno: la primera venta lo crea y las demás lo reutilizan. *(La emisión online sigue rechazando nombres repetidos con `409`, porque ahí el taquillero puede corregir en el momento.)*
+6. **Cada venta va en su propia transacción**: una con datos malos no aborta las otras 49.
+
+#### Discrepancia de monto
+
+Si lo cobrado difiere de lo recalculado, la venta **se registra igual**:
+
+```json
+"discrepancia": { "montoCobrado": "30", "montoRecalculado": "40", "diferencia": "-10" }
+```
+
+> **No se rechaza por discrepancia.** El visitante ya pagó y ya entró; rechazar dejaría dinero en la caja sin ticket que lo respalde, que es peor. El `TicketPago` se crea por **lo cobrado** —que es lo que hay en el cajón— y la diferencia queda en `Ticket.montoRecalculado` y en el arqueo (sección 8.5), visible solo para un supervisor.
+
+---
+
+### 18.4 `POST /tickets/lotes-offline/:id/conciliar` (Cerrar el lote)
+* **Permiso requerido:** `Módulo: 'EmisionTickets'`, `Acción: 'Crear'`
+* **Request Body (JSON, opcional):** el dispositivo declara lo que hizo, como contraste.
+```json
+{
+  "foliosUtilizados": ["TCK-2026-000101", "TCK-2026-000102"],
+  "foliosNoUtilizados": ["TCK-2026-000103"]
+}
+```
+* **Response (200 OK - JSON):**
+```json
+{
+  "idLote": 7,
+  "estado": "CONCILIADO",
+  "emitidos": 12,
+  "noUtilizados": 88,
+  "advertencias": [
+    { "numeroTicket": "TCK-2026-000140", "detalle": "Declarado utilizado, sin ticket registrado" }
+  ]
+}
+```
+
+Todo folio que siga en `RESERVADO` pasa a `NO_UTILIZADO`, para que la auditoría no vea huecos inexplicados en la secuencia.
+
+> **Un folio declarado vendido del que el servidor no tiene ticket sale como advertencia, no como error.** Significa una venta que se perdió (almacenamiento corrupto, cola borrada) y hay que investigarla, pero bloquear la conciliación dejaría la caja sin poder cerrarse.
+
+* Falla con `400` si el lote ya estaba conciliado o invalidado. **Conciliar es requisito para cerrar la caja** (ver 8.6).
+
+---
+
+### 18.5 `DELETE /tickets/lotes-offline/:id` (Invalidar lote)
+* **Permiso requerido:** `Módulo: 'EmisionTickets'`, `Acción: 'Anular'`
+* **Response (200 OK - JSON):**
+```json
+{ "idLote": 7, "estado": "INVALIDADO", "foliosInvalidados": 88 }
+```
+
+Para dispositivo perdido o robado. Los folios en `RESERVADO` pasan a `INVALIDADO` y las subidas posteriores contra ese lote se rechazan. **Los folios ya emitidos no se tocan: esas ventas existen.**
+
+> **Destruye las ventas offline que todavía no se hubieran subido.** Ese dinero quedaría cobrado sin ticket. Usar solo cuando el dispositivo no va a volver.
+
+---
+
+### 18.6 Un usuario dado de baja conserva el derecho a sincronizar
+
+Si a un taquillero lo dan de baja **mientras su dispositivo está sin conexión**, sus ventas ya cobradas quedarían atrapadas: el guard lo rechazaría con `401` al reconectar, y la caja quedaría con dinero que ningún ticket respalda.
+
+**Baja no es repudio de lo actuado.** Las ventas ocurrieron mientras la sesión era legítima; impedir que se registren no las deshace, solo las esconde.
+
+**Qué puede hacer un usuario anulado:**
+
+| Endpoint | Por qué |
+|---|---|
+| `POST /auth/refresh` | Sin token de acceso vigente no puede llamar a nada más |
+| `POST /tickets/emitir-offline` | Es el acto de liquidar lo ya vendido |
+| `POST /tickets/lotes-offline/:id/conciliar` | Cerrar el lote para que la caja pueda cerrarse |
+
+Todo lo demás sigue devolviendo `401`. En particular **no** puede reservar folios nuevos ni recuperar folios pre-firmados: eso sería seguir operando, no liquidar.
+
+**Cómo se hace cumplir:**
+
+1. El derecho **está atado a que haya algo que liquidar**: solo se renueva la sesión si el usuario tiene un lote `ACTIVO` y sin vencer. Sin eso, la baja es total y `/auth/refresh` responde `401`.
+2. El token de acceso que recibe viene marcado con **`soloSincronizacion: true`** y el guard lo **rechaza en cualquier otro handler**, incluso si el usuario volviera a estar activo. Sin esto, refrescar tras la baja devolvería acceso completo y la baja no serviría de nada.
+3. Cada renovación queda en Bitácora como **`REFRESH_USUARIO_ANULADO`**, indicando qué lote la justifica.
+
+La respuesta del refresh lo anuncia, para que el frontend pueda mostrar solo la pantalla de sincronización:
+
+```json
+{
+  "access_token": "…",
+  "refresh_token": "…",
+  "solo_sincronizacion": true,
+  "aviso": "Su usuario fue deshabilitado. Esta sesión solo permite subir y conciliar las ventas offline pendientes; el resto del sistema no está disponible."
+}
+```
+
+---
+
+### 18.7 Despliegue: dos índices que hay que crear a mano
+
+**`prisma db push` no los crea.** Después de cada `db push`, ejecutar:
+
+```bash
+npx ts-node prisma/aplicar-indices-offline.ts
+```
+
+En SQL Server un índice único admite **una sola fila con `NULL`**, y las dos columnas son anulables por diseño (`Ticket.idLocal` es nulo en todas las ventas online; `FolioReservado.idTicket` lo es mientras el folio está reservado). Por eso son índices **filtrados**, que Prisma no sabe expresar en el esquema.
+
+| Índice | Garantiza |
+|---|---|
+| `UX_Ticket_idLocal` | Reintentar la subida no duplica tickets |
+| `UX_FolioReservado_idTicket` | Un folio no respalda dos ventas |
+
+> **Perderlos no falla de forma visible.** Simplemente desaparece la garantía de idempotencia y los reintentos de la cola empiezan a duplicar tickets **en silencio**. El script es idempotente y verifica que los índices queden únicos *y* filtrados.
+
+**Variable de entorno opcional:** `OFFLINE_EXPIRA_HORA` (hora a la que vence la jornada; por defecto `6`).

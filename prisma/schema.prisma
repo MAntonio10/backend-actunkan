@@ -53,9 +53,10 @@ model Usuario {
   gruposEmision        GrupoEmision[]
   donaciones           Donacion[]
   sesiones             SesionRefresh[]
+  lotesOffline         LoteOffline[]
   permiso              Permisos[]
   puesto               Puestos             @relation(fields: [idPuesto], references: [id])
-  actividadesCreadas   ActividadesParque[] @relation("ActividadCreador")
+  actividadesCreadas   ActividadesParque[] @relation("ActividadAutor")
   actividadesAsignadas ActividadesParque[] @relation("ActividadResponsable")
   bitacora             Bitacora[]
 }
@@ -166,6 +167,24 @@ model Ticket {
   fechaUso           DateTime?     @db.DateTime2
   idUsuarioUso       Int?
 
+  // --- Venta offline (ver ESPECIFICACION_OFFLINE.md) ---
+
+  /// Clave de idempotencia que genera el dispositivo: permite reintentar la subida
+  /// de la cola sin duplicar tickets. Null en las ventas online.
+  ///
+  /// **Su índice único NO se declara acá.** En SQL Server un índice único admite una
+  /// sola fila con NULL, así que un `@unique` corriente rompería la segunda venta
+  /// online. Se crea filtrado por SQL crudo; ver `prisma/sql/indices-offline.sql`.
+  idLocal             String?   @db.NVarChar(36)
+  idLoteOffline       Int?
+  /// Momento real de la venta en taquilla, distinto de `fechaCreacion`, que es
+  /// cuando el ticket llegó al servidor.
+  fechaEmisionOffline DateTime? @db.DateTime2
+  /// Precio que arroja la tarifa vigente en `fechaEmisionOffline`. Solo se llena
+  /// cuando difiere de lo que se cobró: es la señal de un cobro mal hecho.
+  montoRecalculado    Decimal?  @db.Decimal(18, 4)
+  origenOffline       Boolean   @default(false)
+
   grupoEmision  GrupoEmision    @relation(fields: [idGrupoEmision], references: [id])
   tipoRecorrido TipoRecorrido   @relation(fields: [idTipoRecorrido], references: [id])
   aperturaCaja  AperturaCaja    @relation(fields: [idAperturaCaja], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -177,9 +196,16 @@ model Ticket {
 
   visitantePorTickets VisitantePorTicket[]
   ticketPagos         TicketPago[]
+  loteOffline         LoteOffline?     @relation(fields: [idLoteOffline], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// Lista en el esquema, pero **uno como máximo**: la relación es uno a uno y la
+  /// garantiza el índice único filtrado sobre `FolioReservado.idTicket`. Prisma no
+  /// puede expresarla como uno a uno sin un `@unique` que rompería los folios en
+  /// estado RESERVADO (todos con `idTicket` nulo).
+  folioReservado      FolioReservado[]
 
   @@index([fechaCreacion])
   @@index([idAperturaCaja])
+  @@index([idLoteOffline])
 }
 
 model VisitantePorTicket {
@@ -382,6 +408,7 @@ model AperturaCaja {
   tickets            Ticket[]
   gruposEmision      GrupoEmision[]
   donaciones         Donacion[]
+  lotesOffline       LoteOffline[]
   estado             EstadoCaja     @relation(fields: [idEstado], references: [id])
 }
 
@@ -403,20 +430,54 @@ model CierreCaja {
   aperturaCaja   AperturaCaja @relation(fields: [idApertura], references: [id])
 }
 
+/// Publicación de una actividad del parque. Funciona como planificación: el autor
+/// define la ventana en la que se muestra a los demás usuarios.
+///
+/// Fuera de esa ventana desaparece del listado de todos menos del autor, que la ve
+/// marcada como expirada y puede reprogramarla. Solo el autor puede editarla o anularla.
 model ActividadesParque {
-  id                   Int          @id @default(autoincrement())
-  idSectorParque       Int
-  idUsuarioCreador     Int
-  idUsuarioResponsable Int
-  nombreActividad      String
-  fechaCreacion        DateTime     @db.DateTime2
-  fechaActualizacion   DateTime?    @db.DateTime2
-  descripcionActividad String
-  imagen               String?
-  anulado              Boolean      @default(false)
-  usuarios             Usuario      @relation("ActividadCreador", fields: [idUsuarioCreador], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  usuariosAsignado     Usuario      @relation("ActividadResponsable", fields: [idUsuarioResponsable], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  sector               SectorParque @relation(fields: [idSectorParque], references: [id])
+  id                   Int       @id @default(autoincrement())
+  idUsuarioAutor       Int
+  /// Opcional: encargado de ejecutarla, distinto de quien la publica.
+  idUsuarioResponsable Int?
+  idSectorParque       Int?
+  nombreActividad      String    @db.NVarChar(255)
+  descripcionActividad String    @db.NVarChar(Max)
+  /// Ventana de visibilidad. `fechaFin` nula = sin fecha de expiración.
+  fechaInicio          DateTime  @db.DateTime2
+  fechaFin             DateTime? @db.DateTime2
+  fechaCreacion        DateTime  @db.DateTime2
+  fechaActualizacion   DateTime? @db.DateTime2
+  anulado              Boolean   @default(false)
+
+  autor       Usuario           @relation("ActividadAutor", fields: [idUsuarioAutor], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  responsable Usuario?          @relation("ActividadResponsable", fields: [idUsuarioResponsable], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sector      SectorParque?     @relation(fields: [idSectorParque], references: [id])
+  imagenes    ImagenActividad[]
+
+  @@index([fechaInicio, fechaFin])
+  @@index([idUsuarioAutor])
+}
+
+/// Imagen de una actividad.
+///
+/// El archivo vive en disco (`uploads/actividades/`) y aquí solo se guarda su ruta:
+/// almacenar binarios en la base la haría crecer sin control y penalizaría cada
+/// consulta que tocara la tabla.
+model ImagenActividad {
+  id            Int      @id @default(autoincrement())
+  idActividad   Int
+  /// Nombre generado por el servidor; nunca el que envió el cliente.
+  archivo       String   @db.NVarChar(255)
+  nombreOriginal String  @db.NVarChar(255)
+  mimeType      String   @db.NVarChar(100)
+  tamanoBytes   Int
+  orden         Int      @default(0)
+  fechaCreacion DateTime @db.DateTime2
+
+  actividad ActividadesParque @relation(fields: [idActividad], references: [id], onDelete: Cascade)
+
+  @@index([idActividad])
 }
 
 model SectorParque {
@@ -440,3 +501,60 @@ model Bitacora {
   usuario       Usuario? @relation(fields: [idUsuario], references: [id], onDelete: SetNull)
 }
 
+
+// ---------------------------------------------------------------------------
+// Venta offline — ver ESPECIFICACION_OFFLINE.md
+// ---------------------------------------------------------------------------
+
+/// Bloque de folios pre-firmados entregado a un dispositivo de taquilla para que
+/// pueda vender sin conexión. Queda atado a un usuario, un dispositivo y la caja
+/// que estaba abierta al reservarlo: la venta pertenece a ese turno aunque se
+/// suba horas después.
+model LoteOffline {
+  id                Int       @id @default(autoincrement())
+  idUsuario         Int
+  idAperturaCaja    Int
+  /// UUID persistente que genera el navegador del dispositivo.
+  idDispositivo     String    @db.NVarChar(64)
+  /// 'ACTIVO' | 'CONCILIADO' | 'INVALIDADO'
+  estado            String    @default("ACTIVO") @db.NVarChar(20)
+  fechaCreacion     DateTime  @db.DateTime2
+  /// Fin de la jornada operativa; después, un job pasa sus folios a NO_UTILIZADO.
+  expiraEn          DateTime  @db.DateTime2
+  fechaConciliacion DateTime? @db.DateTime2
+
+  usuario      Usuario          @relation(fields: [idUsuario], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  aperturaCaja AperturaCaja     @relation(fields: [idAperturaCaja], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  folios       FolioReservado[]
+  tickets      Ticket[]
+
+  @@index([idDispositivo, estado])
+  @@index([idAperturaCaja])
+}
+
+/// Folio con su firma HMAC, generado antes de que exista la venta.
+///
+/// Tabla aparte y no filas de `Ticket` en estado reservado: pre-crear tickets
+/// obligaría a excluirlos en el historial, el arqueo y las métricas, y un `WHERE`
+/// olvidado en un solo sitio metería folios fantasma en un reporte de ingresos.
+/// Además hace que `POST /tickets/validar` responda 404 a un folio aún no vendido
+/// sin escribir código: no hay fila que encontrar en `Ticket`.
+model FolioReservado {
+  id           Int      @id @default(autoincrement())
+  idLote       Int
+  numeroTicket String   @unique @db.NVarChar(30)
+  /// HMAC del folio, idéntica a la que llevará el ticket al emitirse.
+  firma        String   @db.NVarChar(128)
+  /// 'RESERVADO' | 'EMITIDO' | 'NO_UTILIZADO' | 'INVALIDADO'
+  estado       String   @default("RESERVADO") @db.NVarChar(20)
+  /// Se llena al emitir. Un folio no puede respaldar dos ventas, pero **el único
+  /// tampoco se declara acá**: mientras están en RESERVADO todos los folios lo
+  /// tienen en NULL, y SQL Server solo admite un NULL por índice único. Se crea
+  /// filtrado en `prisma/sql/indices-offline.sql`, igual que `Ticket.idLocal`.
+  idTicket     Int?
+
+  lote   LoteOffline @relation(fields: [idLote], references: [id], onDelete: Cascade)
+  ticket Ticket?     @relation(fields: [idTicket], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([idLote, estado])
+}
