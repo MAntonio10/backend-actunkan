@@ -11,6 +11,7 @@ import { CajasService } from '../cajas/cajas.service';
 import { TicketsService } from './tickets.service';
 import { firmarNumeroTicket } from '../common/utils/qr.util';
 import { RecurrenteService } from '../pagos/recurrente.service';
+import { MailService } from '../mail/mail.service';
 
 const EJECUTOR = { id: 1, email: 'qa@test.com' };
 
@@ -94,6 +95,7 @@ describe('TicketsService', () => {
   let cajasService: any;
   let bitacoraService: any;
   let recurrente: any;
+  let mailService: any;
 
   beforeEach(async () => {
     tx = crearTxMock();
@@ -105,6 +107,11 @@ describe('TicketsService', () => {
         update: jest.fn(),
         count: jest.fn(),
         aggregate: jest.fn(),
+      },
+      // Lo usa `obtenerNombreEjecutor` cuando se registra en bitácora fuera de
+      // una transacción, como al enviar el enlace de pago.
+      usuario: {
+        findUnique: jest.fn().mockResolvedValue({ id: 1, nombre: 'QA Tester' }),
       },
     };
     cajasService = { obtenerActual: jest.fn().mockResolvedValue({ id: 9 }) };
@@ -118,6 +125,7 @@ describe('TicketsService', () => {
       }),
       consultarCheckout: jest.fn(),
     };
+    mailService = { enviarEnlacePago: jest.fn().mockResolvedValue(undefined) };
 
     jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
 
@@ -128,6 +136,7 @@ describe('TicketsService', () => {
         { provide: CajasService, useValue: cajasService },
         { provide: BitacoraService, useValue: bitacoraService },
         { provide: RecurrenteService, useValue: recurrente },
+        { provide: MailService, useValue: mailService },
       ],
     }).compile();
 
@@ -564,6 +573,107 @@ describe('TicketsService', () => {
     });
   });
 
+  /**
+   * El enlace no viaja en la petición: sale del pago guardado. Estas pruebas
+   * vigilan que no se pueda mandar un correo cuando no hay nada que cobrar.
+   */
+  describe('enviarEnlacePago', () => {
+    const ticketConEnlace = (extra: any = {}) => ({
+      id: 7,
+      numeroTicket: 'TCK-2026-000007',
+      nombre: 'Manuel Castellanos',
+      montoTotal: '75.0000',
+      anulado: false,
+      atraccion: { nombre: 'Cuevas Actun Kan' },
+      ticketPagos: [
+        {
+          anulado: false,
+          estadoPago: 'PENDIENTE',
+          checkoutUrl: 'https://app.recurrente.com/checkout-session/ch_prueba',
+        },
+      ],
+      ...extra,
+    });
+
+    beforeEach(() => {
+      jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
+    });
+
+    it('envía el enlace guardado, no uno que venga de fuera', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(ticketConEnlace() as any);
+
+      const salida = await service.enviarEnlacePago(7, 'cliente@correo.com', EJECUTOR);
+
+      expect(mailService.enviarEnlacePago).toHaveBeenCalledWith(
+        expect.objectContaining({
+          correo: 'cliente@correo.com',
+          numeroTicket: 'TCK-2026-000007',
+          montoTotal: 'Q75.00',
+          atraccion: 'Cuevas Actun Kan',
+          checkoutUrl: 'https://app.recurrente.com/checkout-session/ch_prueba',
+        }),
+      );
+      expect(salida.correo).toBe('cliente@correo.com');
+    });
+
+    it('rechaza un ticket anulado: su enlace ya no sirve', async () => {
+      jest
+        .spyOn(service, 'findOne')
+        .mockResolvedValue(ticketConEnlace({ anulado: true }) as any);
+
+      await expect(
+        service.enviarEnlacePago(7, 'cliente@correo.com', EJECUTOR),
+      ).rejects.toThrow(/anulado/i);
+      expect(mailService.enviarEnlacePago).not.toHaveBeenCalled();
+    });
+
+    it('rechaza un ticket ya pagado: no hay enlace que mandar', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(
+        ticketConEnlace({
+          ticketPagos: [{ anulado: false, estadoPago: 'PAGADO', checkoutUrl: null }],
+        }) as any,
+      );
+
+      await expect(
+        service.enviarEnlacePago(7, 'cliente@correo.com', EJECUTOR),
+      ).rejects.toThrow(/ya está pagado/i);
+      expect(mailService.enviarEnlacePago).not.toHaveBeenCalled();
+    });
+
+    it('rechaza un ticket en efectivo, que nunca tuvo enlace', async () => {
+      jest
+        .spyOn(service, 'findOne')
+        .mockResolvedValue(ticketConEnlace({ ticketPagos: [] }) as any);
+
+      await expect(
+        service.enviarEnlacePago(7, 'cliente@correo.com', EJECUTOR),
+      ).rejects.toThrow(/no tiene un enlace de pago pendiente/i);
+    });
+
+    it('deja constancia en bitácora de a qué dirección salió', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(ticketConEnlace() as any);
+
+      await service.enviarEnlacePago(7, 'cliente@correo.com', EJECUTOR);
+
+      expect(BitacoraService.registrarEnTransaccion).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          accion: 'ENVIAR_ENLACE_PAGO',
+          descripcion: expect.stringContaining('cliente@correo.com'),
+        }),
+      );
+    });
+
+    it('propaga el fallo del envío en vez de decir que se mandó', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(ticketConEnlace() as any);
+      mailService.enviarEnlacePago.mockRejectedValue(new Error('SMTP caído'));
+
+      await expect(
+        service.enviarEnlacePago(7, 'cliente@correo.com', EJECUTOR),
+      ).rejects.toThrow('SMTP caído');
+    });
+  });
+
   describe('findOne y findAll', () => {
     it('findOne retorna estadoPago: "Pago pendiente" si tiene pago no confirmado', async () => {
       prisma.ticket.findUnique.mockResolvedValue({
@@ -680,6 +790,46 @@ describe('TicketsService', () => {
 
       expect(res.metricas.totalTickets).toBe(res.total);
       expect(res.total).toBe(6);
+    });
+  });
+
+  describe('paginación', () => {
+    const args = () => prisma.ticket.findMany.mock.calls[0][0];
+
+    beforeEach(() => {
+      prisma.ticket.findMany.mockResolvedValue([]);
+      prisma.ticket.count.mockResolvedValue(0);
+      prisma.ticket.aggregate.mockResolvedValue({
+        _sum: { montoTotal: 0, cantidadPersonas: 0 },
+        _count: { _all: 0 },
+      });
+    });
+
+    it('reparte de 20 en 20 por defecto', async () => {
+      const res = await service.findAll({});
+
+      expect(res.limite).toBe(20);
+      expect(args().take).toBe(20);
+    });
+
+    it('traduce página y límite a skip/take', async () => {
+      await service.findAll({ pagina: 4, limite: 25 } as any);
+
+      expect(args()).toMatchObject({ skip: 75, take: 25 });
+    });
+
+    it('recorta un límite fuera de rango al tope', async () => {
+      const res = await service.findAll({ limite: 5000 } as any);
+
+      expect(res.limite).toBe(200);
+    });
+
+    // El folio es texto y su orden alfabético no es el cronológico; el desempate
+    // por id cierra el orden cuando dos ventas comparten `fechaCreacion`.
+    it('ordena por fecha con desempate por id', async () => {
+      await service.findAll({});
+
+      expect(args().orderBy).toEqual([{ fechaCreacion: 'desc' }, { id: 'desc' }]);
     });
   });
 });

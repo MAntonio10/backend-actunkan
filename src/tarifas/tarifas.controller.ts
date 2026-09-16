@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Patch, Query, Request } from '@nestjs/common';
 import { TarifasService } from './tarifas.service';
 import { ActualizarTarifaDto, ActualizarTarifaGuiaDto } from './dto/actualizar-tarifa.dto';
+import { QueryHistoricoDto } from './dto/query-historico.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { obtenerEjecutor } from '../common/utils/ejecutor.util';
 
@@ -16,14 +17,8 @@ export class TarifasController {
 
   @Get('historico')
   @RequirePermission('EmisionTickets','Ver')
-  findHistorico(
-    @Query('idAtraccion') idAtraccion?: string,
-    @Query('idOrigen') idOrigen?: string,
-  ) {
-    return this.tarifasService.findHistorico(
-      idAtraccion ? Number(idAtraccion) : undefined,
-      idOrigen ? Number(idOrigen) : undefined,
-    );
+  findHistorico(@Query() query: QueryHistoricoDto) {
+    return this.tarifasService.findHistorico(query);
   }
 
   @Get('guia')

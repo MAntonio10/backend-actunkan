@@ -21,7 +21,13 @@ async function bootstrap() {
     .map((o) => o.trim())
     .filter(Boolean);
 
-  app.enableCors({ origin: origenes?.length ? origenes : '*' });
+  app.enableCors({
+    origin: origenes?.length ? origenes : '*',
+    // Sin esto el navegador oculta la cabecera y el frontend no puede leer el
+    // nombre del archivo al descargar un reporte: se ve un xlsx guardado con un
+    // nombre inventado por el cliente en vez del que propuso el servidor.
+    exposedHeaders: ['Content-Disposition'],
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({

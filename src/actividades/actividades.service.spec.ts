@@ -294,4 +294,42 @@ describe('ActividadesService', () => {
       expect(almacenamiento.eliminar).toHaveBeenCalledWith('1234-abcd.png');
     });
   });
+
+  describe('paginación', () => {
+    const args = () => prisma.actividadesParque.findMany.mock.calls[0][0];
+
+    beforeEach(() => {
+      prisma.actividadesParque.findMany.mockResolvedValue([]);
+      prisma.actividadesParque.count.mockResolvedValue(0);
+    });
+
+    // Actividades comparte la medida de página, pero NO el tope: su máximo es 100
+    // porque cada fila arrastra sus imágenes. Esa diferencia es la que se blinda.
+    it('reparte de 20 en 20', async () => {
+      const res = await service.findAll({} as any, OTRO.id);
+
+      expect(res.limite).toBe(20);
+      expect(args().take).toBe(20);
+    });
+
+    it('traduce página y límite a skip/take', async () => {
+      await service.findAll({ pagina: 3, limite: 20 } as any, OTRO.id);
+
+      expect(args()).toMatchObject({ skip: 40, take: 20 });
+    });
+
+    it('recorta un límite fuera de rango al tope del módulo', async () => {
+      const res = await service.findAll({ limite: 500 } as any, OTRO.id);
+
+      expect(res.limite).toBe(100);
+    });
+
+    // Sin el desempate, SQL Server no garantiza un orden estable entre páginas:
+    // varias publicaciones pueden compartir `fechaInicio`.
+    it('ordena por fecha de inicio con desempate por id', async () => {
+      await service.findAll({} as any, OTRO.id);
+
+      expect(args().orderBy).toEqual([{ fechaInicio: 'desc' }, { id: 'desc' }]);
+    });
+  });
 });

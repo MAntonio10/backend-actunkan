@@ -1,7 +1,9 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString } from 'class-validator';
+import { PaginacionQueryDto } from '../../common/dto/paginacion.dto';
+import { PAGINACION_ACTIVIDADES } from '../../common/utils/paginacion.util';
 
-export class QueryActividadDto {
+export class QueryActividadDto extends PaginacionQueryDto(PAGINACION_ACTIVIDADES) {
   /** Busca en nombre y descripción. */
   @IsOptional()
   @IsString()
@@ -46,17 +48,4 @@ export class QueryActividadDto {
   @IsOptional()
   @IsString()
   soloMias?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1, { message: 'La página debe ser mayor o igual a 1.' })
-  pagina?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1, { message: 'El límite debe ser mayor o igual a 1.' })
-  @Max(100, { message: 'El límite no puede exceder 100 registros por página.' })
-  limite?: number;
 }

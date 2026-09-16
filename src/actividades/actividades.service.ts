@@ -8,6 +8,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { EjecutorInfo } from '../common/utils/ejecutor.util';
 import { getFechaUTC6 } from '../common/utils/date.util';
+import {
+  PAGINACION_ACTIVIDADES,
+  construirRespuestaPaginada,
+  resolverPaginacion,
+} from '../common/utils/paginacion.util';
 import { AlmacenamientoImagenesService } from './almacenamiento-imagenes.service';
 import { ActualizarActividadDto, CrearActividadDto } from './dto/crear-actividad.dto';
 import { QueryActividadDto } from './dto/query-actividad.dto';
@@ -166,8 +171,7 @@ export class ActividadesService {
   async findAll(query: QueryActividadDto, idUsuario?: number) {
     const { buscar, idSectorParque, idUsuarioAutor, incluirAnuladas, soloAnuladas, soloMias } =
       query || {};
-    const pagina = query?.pagina && query.pagina > 0 ? query.pagina : 1;
-    const limite = query?.limite && query.limite > 0 ? query.limite : 20;
+    const paginacion = resolverPaginacion(query, PAGINACION_ACTIVIDADES);
     const ahora = this.ahoraReal();
 
     const where: any = {};
@@ -213,22 +217,25 @@ export class ActividadesService {
       this.prisma.actividadesParque.findMany({
         where,
         include: INCLUDE_DETALLE,
-        orderBy: { fechaInicio: 'desc' },
-        skip: (pagina - 1) * limite,
-        take: limite,
+        // El desempate por `id` no es decorativo: SQL Server resuelve `skip`/`take`
+        // con OFFSET..FETCH, y si la clave de orden se repite —varias publicaciones
+        // pueden empezar el mismo día— el motor no garantiza un orden estable entre
+        // páginas, así que una fila puede salir dos veces o no salir nunca.
+        orderBy: [{ fechaInicio: 'desc' }, { id: 'desc' }],
+        skip: paginacion.skip,
+        take: paginacion.take,
       }),
       this.prisma.actividadesParque.count({ where }),
     ]);
 
-    return {
-      datos: datos.map((a) => ({
+    return construirRespuestaPaginada(
+      datos.map((a) => ({
         ...this.conVigencia(a, ahora),
         esAutor: a.idUsuarioAutor === idUsuario,
       })),
       total,
-      pagina,
-      limite,
-    };
+      paginacion,
+    );
   }
 
   async findOne(id: number, idUsuario?: number) {

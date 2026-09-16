@@ -12,12 +12,14 @@ import {
   Request,
   Res,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { TicketsService } from './tickets.service';
 import { TicketPdfService } from './ticket-pdf.service';
 import { EmitirTicketDto } from './dto/emitir-ticket.dto';
 import { QueryTicketDto } from './dto/query-ticket.dto';
 import { ValidarTicketDto } from './dto/validar-ticket.dto';
+import { EnviarEnlacePagoDto } from './dto/enviar-enlace-pago.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { obtenerEjecutor } from '../common/utils/ejecutor.util';
 
@@ -81,6 +83,26 @@ export class TicketsController {
       'Content-Length': pdf.length.toString(),
     });
     res.end(pdf);
+  }
+
+  /**
+   * Manda al cliente su enlace de pago por correo.
+   *
+   * Solo recibe la dirección: el enlace sale del `TicketPago` guardado, así que
+   * este endpoint no puede usarse para mandar una URL cualquiera a nombre del
+   * parque. El límite propio es más estricto que el global porque escribe hacia
+   * fuera: cada llamada acaba en el buzón de un tercero.
+   */
+  @Post(':id/enviar-enlace-pago')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('EmisionTickets', 'Crear')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  enviarEnlacePago(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EnviarEnlacePagoDto,
+    @Request() req: any,
+  ) {
+    return this.ticketsService.enviarEnlacePago(id, dto.correo, obtenerEjecutor(req));
   }
 
   @Delete(':id')

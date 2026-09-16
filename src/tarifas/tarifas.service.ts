@@ -4,7 +4,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { EjecutorInfo } from '../common/utils/ejecutor.util';
 import { getFechaUTC6 } from '../common/utils/date.util';
+import {
+  construirRespuestaPaginada,
+  resolverPaginacion,
+} from '../common/utils/paginacion.util';
 import { ActualizarTarifaDto, ActualizarTarifaGuiaDto } from './dto/actualizar-tarifa.dto';
+import { QueryHistoricoDto } from './dto/query-historico.dto';
 
 /** Única categoría a la que se le permite precio Q0. */
 export const CODIGO_NINO_MENOR = 'nino_menor';
@@ -38,15 +43,35 @@ export class TarifasService {
   }
 
   /** Historial completo, para auditar cuándo cambió cada precio. */
-  async findHistorico(idAtraccion?: number, idOrigen?: number) {
-    return this.prisma.tarifa.findMany({
-      where: {
-        ...(idAtraccion ? { idAtraccion } : {}),
-        ...(idOrigen ? { idOrigen } : {}),
-      },
-      include: INCLUDE_TARIFA,
-      orderBy: [{ idAtraccion: 'asc' }, { idOrigen: 'asc' }, { vigenteDesde: 'desc' }],
-    });
+  async findHistorico(query?: QueryHistoricoDto) {
+    const paginacion = resolverPaginacion(query);
+    // Las guardas con `?` se conservan tal cual: hoy `?idAtraccion=0` no filtra
+    // nada —no existe atracción con id 0— y debe seguir comportándose igual.
+    const where = {
+      ...(query?.idAtraccion ? { idAtraccion: query.idAtraccion } : {}),
+      ...(query?.idOrigen ? { idOrigen: query.idOrigen } : {}),
+    };
+
+    const [datos, total] = await Promise.all([
+      this.prisma.tarifa.findMany({
+        where,
+        include: INCLUDE_TARIFA,
+        // El desempate por `id` cierra el orden: varias tarifas de la misma
+        // atracción y origen pueden compartir `vigenteDesde`, y SQL Server no
+        // garantiza un orden estable entre páginas sobre una clave repetida.
+        orderBy: [
+          { idAtraccion: 'asc' },
+          { idOrigen: 'asc' },
+          { vigenteDesde: 'desc' },
+          { id: 'desc' },
+        ],
+        skip: paginacion.skip,
+        take: paginacion.take,
+      }),
+      this.prisma.tarifa.count({ where }),
+    ]);
+
+    return construirRespuestaPaginada(datos, total, paginacion);
   }
 
   async findTarifaGuiaVigente() {

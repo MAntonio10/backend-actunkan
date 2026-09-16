@@ -25,23 +25,6 @@ const medidas = (pdf: Buffer) => {
   return { ancho: parseFloat(m[3]), alto: parseFloat(m[4]) };
 };
 
-const extraerTextoPdf = (pdf: Buffer): string => {
-  const str = pdf.toString('latin1');
-  let textoTotal = '';
-  const regex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
-  let match;
-  while ((match = regex.exec(str)) !== null) {
-    try {
-      const buffer = Buffer.from(match[1], 'latin1');
-      const decompressed = zlib.inflateSync(buffer);
-      textoTotal += decompressed.toString('utf8');
-    } catch {
-      textoTotal += match[1];
-    }
-  }
-  return textoTotal;
-};
-
 describe('TicketPdfService', () => {
   let service: TicketPdfService;
 
@@ -193,5 +176,91 @@ describe('TicketPdfService', () => {
       expect.any(String),
       expect.anything(),
     );
+  });
+
+  /**
+   * Un ticket con tarjeta que se anula sin pagar salía rotulado «Monto pagado»:
+   * al anularlo se marcan sus pagos como anulados, y la única señal de
+   * «pendiente» que miraba el PDF era que hubiera un pago pendiente **sin
+   * anular**. El documento afirmaba un cobro que nunca ocurrió.
+   */
+  describe('ticket anulado', () => {
+    const anuladoConTarjeta = () =>
+      ticketBase({
+        anulado: true,
+        ticketPagos: [{ anulado: true, estadoPago: 'PENDIENTE' }],
+      });
+
+    it('no dice "Monto pagado" en un ticket anulado sin cobrar', async () => {
+      const spy = jest.spyOn<any, any>(service, 'caja');
+
+      const pdf = await service.generar(anuladoConTarjeta());
+
+      expect(pdf.length).toBeGreaterThan(0);
+      expect(spy).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        'Monto pagado',
+        expect.any(String),
+        expect.anything(),
+      );
+      expect(spy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        'Ticket anulado',
+        expect.any(String),
+        expect.anything(),
+      );
+    });
+
+    /**
+     * El sello se comprueba por el alto: la insignia «ANULADO · NO VÁLIDO»
+     * reserva 26 pt sobre el mismo ticket vigente. No se comprueba por texto
+     * porque pdfkit subsetea la fuente y en el flujo no queda nada legible.
+     */
+    it('reserva el espacio de la insignia de anulado', async () => {
+      const vigente = await service.generar(
+        ticketBase({ ticketPagos: [{ anulado: false, estadoPago: 'PENDIENTE' }] }),
+      );
+      const anulado = await service.generar(anuladoConTarjeta());
+
+      expect(medidas(anulado).alto).toBe(medidas(vigente).alto + 26);
+      expect(medidas(anulado).ancho).toBe(medidas(vigente).ancho);
+    });
+
+    it('tampoco lo dice cuando el pago llegó a confirmarse antes de anular', async () => {
+      const spy = jest.spyOn<any, any>(service, 'caja');
+
+      await service.generar(
+        ticketBase({
+          anulado: true,
+          ticketPagos: [{ anulado: true, estadoPago: 'PAGADO' }],
+        }),
+      );
+
+      expect(spy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        'Ticket anulado',
+        expect.any(String),
+        expect.anything(),
+      );
+    });
+
+    it('un ticket vigente con pago sin confirmar sigue diciendo "Pago pendiente"', async () => {
+      const spy = jest.spyOn<any, any>(service, 'caja');
+
+      await service.generar(
+        ticketBase({ ticketPagos: [{ anulado: false, estadoPago: 'PENDIENTE' }] }),
+      );
+
+      expect(spy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(Number),
+        'Pago pendiente',
+        expect.any(String),
+        expect.anything(),
+      );
+    });
   });
 });

@@ -264,4 +264,36 @@ describe('DonacionesService', () => {
       expect(whereDe(0).OR).toBeDefined();
     });
   });
+
+  describe('paginación', () => {
+    const args = () => prisma.donacion.findMany.mock.calls[0][0];
+
+    beforeEach(() => {
+      prisma.donacion.findMany.mockResolvedValue([]);
+      prisma.donacion.count.mockResolvedValue(0);
+      prisma.donacion.aggregate.mockResolvedValue({
+        _sum: { monto: 0 },
+        _count: { _all: 0 },
+      });
+    });
+
+    it('reparte de 20 en 20 por defecto', async () => {
+      const res = await service.findAll({} as any);
+
+      expect(res.limite).toBe(20);
+      expect(args().take).toBe(20);
+    });
+
+    it('traduce página y límite a skip/take', async () => {
+      await service.findAll({ pagina: 2, limite: 30 } as any);
+
+      expect(args()).toMatchObject({ skip: 30, take: 30 });
+    });
+
+    it('ordena por fecha con desempate por id', async () => {
+      await service.findAll({} as any);
+
+      expect(args().orderBy).toEqual([{ fechaCreacion: 'desc' }, { id: 'desc' }]);
+    });
+  });
 });

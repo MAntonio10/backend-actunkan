@@ -26,6 +26,8 @@ const COLOR = {
 const ACENTO = {
   VISITANTE: '#2F6B3D',
   GUIA: '#B07D00',
+  /** Un pase anulado se distingue antes de leerlo: marco y sellos en rojo. */
+  ANULADO: '#B3261E',
 };
 
 const ALTO_LOGO = 30;
@@ -158,7 +160,21 @@ export class TicketPdfService {
    */
   async generar(ticket: any): Promise<Buffer> {
     const esGuia = ticket.tipoTicket === TIPO_TICKET_GUIA;
-    const acento = esGuia ? ACENTO.GUIA : ACENTO.VISITANTE;
+    /**
+     * Un pase anulado tiene que verse anulado.
+     *
+     * Antes no se distinguía en nada de uno válido, y con un cobro con tarjeta
+     * salía además rotulado «Monto pagado»: al anular se marcan los pagos como
+     * anulados, y la única señal de «pendiente» que miraba este PDF era que
+     * existiera un pago pendiente **sin anular**. Anular lo borraba, así que el
+     * documento afirmaba que se había cobrado algo que nunca se cobró.
+     */
+    const anulado = Boolean(ticket.anulado);
+    const acento = anulado
+      ? ACENTO.ANULADO
+      : esGuia
+        ? ACENTO.GUIA
+        : ACENTO.VISITANTE;
     const logos = this.cargarLogos();
 
     const payloadQr = construirPayloadQr(ticket.numeroTicket, ticket.qrFirma);
@@ -176,7 +192,7 @@ export class TicketPdfService {
     regla.end();
 
     const hayPais = Boolean(ticket.pais?.nombre);
-    const altoInsignia = esGuia ? 26 : 0;
+    const altoInsignia = (esGuia ? 26 : 0) + (anulado ? 26 : 0);
 
     // Desglose por categoría. El pase de guía no lo lleva: es una sola persona.
     const detalle: Array<{ texto: string; monto: string }> = (ticket.visitantePorTickets ?? [])
@@ -246,6 +262,28 @@ export class TicketPdfService {
         align: 'center',
       });
     y += 12;
+
+    if (anulado) {
+      const anchoInsignia = 150;
+      const xInsignia = (ANCHO - anchoInsignia) / 2;
+
+      doc
+        .roundedRect(xInsignia, y + 2, anchoInsignia, 18, 9)
+        .lineWidth(1.4)
+        .stroke(ACENTO.ANULADO);
+
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(8)
+        .fillColor(ACENTO.ANULADO)
+        .text('ANULADO · NO VÁLIDO', xInsignia, y + 8, {
+          width: anchoInsignia,
+          align: 'center',
+          lineBreak: false,
+        });
+
+      y += 26;
+    }
 
     // El pase de guía se cobra aparte del grupo: conviene que se lea sin ambigüedad.
     if (esGuia) {
@@ -375,7 +413,16 @@ export class TicketPdfService {
           !p.anulado && (p.estadoPago === 'PENDIENTE' || p.estadoPago === 'Pago pendiente'),
       );
 
-    const etiquetaMonto = tienePagoPendiente ? 'Pago pendiente' : 'Monto pagado';
+    /*
+     * En un ticket anulado no se puede deducir si se cobró: al anularlo se
+     * marcan sus pagos como anulados, y con eso desaparece la única señal que
+     * distinguía «pendiente» de «pagado». Se dice lo único que consta.
+     */
+    const etiquetaMonto = anulado
+      ? 'Ticket anulado'
+      : tienePagoPendiente
+        ? 'Pago pendiente'
+        : 'Monto pagado';
     y += 14;
     y = this.caja(doc, y, etiquetaMonto, this.moneda(ticket.montoTotal), { tamValor: 11 });
     y += 18;
@@ -388,7 +435,9 @@ export class TicketPdfService {
       .font('Helvetica')
       .fontSize(7)
       .fillColor(COLOR.gris)
-      .text('TOTAL A PAGAR', MARGEN, y + 10, { lineBreak: false });
+      .text(anulado ? 'TOTAL ANULADO' : 'TOTAL A PAGAR', MARGEN, y + 10, {
+        lineBreak: false,
+      });
 
     doc
       .font('Helvetica-Bold')
@@ -408,11 +457,38 @@ export class TicketPdfService {
     doc.image(qrPng, xQr, y, { width: LADO_QR, height: LADO_QR });
     y += LADO_QR + 22;
 
+    /*
+     * Sello diagonal sobre el QR. El código se deja impreso a propósito: si
+     * alguien presenta el papel en la garita, escanearlo tiene que dar el
+     * rechazo explícito en vez de un «ticket no encontrado». El sello es para
+     * que ni siquiera haga falta escanearlo.
+     */
+    if (anulado) {
+      const centroX = ANCHO / 2;
+      const centroY = y - LADO_QR / 2 - 11;
+
+      doc.save();
+      doc.rotate(-24, { origin: [centroX, centroY] });
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(26)
+        .fillColor(ACENTO.ANULADO)
+        .fillOpacity(0.72)
+        .text('ANULADO', 0, centroY - 16, { width: ANCHO, align: 'center', lineBreak: false });
+      doc.fillOpacity(1);
+      doc.restore();
+    }
+
     doc
       .font('Helvetica')
       .fontSize(6.5)
-      .fillColor(COLOR.gris)
-      .text('ESCANEE PARA VALIDAR TICKET', 0, y, { width: ANCHO, align: 'center' });
+      .fillColor(anulado ? ACENTO.ANULADO : COLOR.gris)
+      .text(
+        anulado ? 'TICKET ANULADO · NO VÁLIDO PARA INGRESO' : 'ESCANEE PARA VALIDAR TICKET',
+        0,
+        y,
+        { width: ANCHO, align: 'center' },
+      );
 
     doc.end();
     return terminado;

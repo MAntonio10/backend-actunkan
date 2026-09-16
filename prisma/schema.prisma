@@ -392,6 +392,10 @@ model TicketPago {
   opcionPago         OpcionPago @relation(fields: [idOpcionPago], references: [id])
 
   @@index([idPagoPasarela])
+  /// SQL Server no indexa las claves foráneas por su cuenta. Sin este índice, el
+  /// desglose de ventas por forma de pago recorre la tabla entera.
+  @@index([idTicket])
+  @@index([idOpcionPago, estadoPago])
 }
 
 model AperturaCaja {
@@ -428,6 +432,9 @@ model CierreCaja {
   observaciones  String?      @db.NVarChar(Max)
   anulado        Boolean      @default(false)
   aperturaCaja   AperturaCaja @relation(fields: [idApertura], references: [id])
+
+  @@index([fechaCierre])
+  @@index([idApertura])
 }
 
 /// Publicación de una actividad del parque. Funciona como planificación: el autor
@@ -499,6 +506,14 @@ model Bitacora {
   fecha         DateTime @db.DateTime2
 
   usuario       Usuario? @relation(fields: [idUsuario], references: [id], onDelete: SetNull)
+
+  /// La bitácora crece con cada mutación del sistema y es la tabla más grande a medio
+  /// plazo. Sin estos índices, filtrar por fecha en un reporte de auditoría obliga a
+  /// recorrerla entera, y `descripcion` es NVARCHAR(Max): cada fila arrastra además
+  /// una lectura fuera de página.
+  @@index([fecha])
+  @@index([modulo, fecha])
+  @@index([idUsuario, fecha])
 }
 
 

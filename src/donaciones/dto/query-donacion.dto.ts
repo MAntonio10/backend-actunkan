@@ -1,7 +1,8 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, MaxLength } from 'class-validator';
+import { PaginacionQueryDto } from '../../common/dto/paginacion.dto';
 
-export class QueryDonacionDto {
+export class QueryDonacionDto extends PaginacionQueryDto() {
   /** Busca por folio del recibo o nombre del donante. */
   @IsOptional()
   @IsString()
@@ -28,19 +29,6 @@ export class QueryDonacionDto {
   @IsOptional()
   @IsString()
   incluirAnulados?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1, { message: 'La página debe ser mayor o igual a 1.' })
-  pagina?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1, { message: 'El límite debe ser mayor o igual a 1.' })
-  @Max(200, { message: 'El límite no puede exceder 200 registros por página.' })
-  limite?: number;
 }
 
 export class AnularDonacionDto {

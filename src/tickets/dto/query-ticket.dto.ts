@@ -1,7 +1,8 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString } from 'class-validator';
+import { PaginacionQueryDto } from '../../common/dto/paginacion.dto';
 
-export class QueryTicketDto {
+export class QueryTicketDto extends PaginacionQueryDto() {
   /** Búsqueda libre sobre nombre del grupo, folio y nombre del guía. */
   @IsOptional()
   @IsString()
@@ -38,17 +39,4 @@ export class QueryTicketDto {
   @IsOptional()
   @IsString()
   incluirAnulados?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1, { message: 'La página debe ser mayor o igual a 1.' })
-  pagina?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1, { message: 'El límite debe ser mayor o igual a 1.' })
-  @Max(200, { message: 'El límite no puede exceder 200 registros por página.' })
-  limite?: number;
 }

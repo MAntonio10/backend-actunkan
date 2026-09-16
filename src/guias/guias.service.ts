@@ -5,10 +5,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  construirRespuestaPaginada,
+  resolverPaginacion,
+} from '../common/utils/paginacion.util';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { EjecutorInfo } from '../common/utils/ejecutor.util';
 import { getFechaUTC6 } from '../common/utils/date.util';
 import { UpdateGuiaDto } from './dto/update-guia.dto';
+import { QueryGuiaDto } from './dto/query-guia.dto';
 
 @Injectable()
 export class GuiasService {
@@ -41,14 +46,28 @@ export class GuiasService {
   }
 
   /** Listado para el selector de guías; `buscar` filtra por nombre. */
-  async findAll(buscar?: string, incluirAnulados = false) {
-    return this.prisma.guia.findMany({
-      where: {
-        ...(incluirAnulados ? {} : { anulado: false }),
-        ...(buscar ? { nombre: { contains: buscar } } : {}),
-      },
-      orderBy: { nombre: 'asc' },
-    });
+  async findAll(query?: QueryGuiaDto) {
+    const paginacion = resolverPaginacion(query);
+    // Se compara contra la cadena exacta 'true': `?incluirAnulados=1` se ignora.
+    const where = {
+      ...(query?.incluirAnulados === 'true' ? {} : { anulado: false }),
+      ...(query?.buscar ? { nombre: { contains: query.buscar } } : {}),
+    };
+
+    const [datos, total] = await Promise.all([
+      this.prisma.guia.findMany({
+        where,
+        // El desempate por `id` no es decorativo: SQL Server resuelve `skip`/`take`
+        // con OFFSET..FETCH, y sobre una clave de orden que se repite —aquí el
+        // nombre, que no es único— no garantiza un orden estable entre páginas.
+        orderBy: [{ nombre: 'asc' }, { id: 'asc' }],
+        skip: paginacion.skip,
+        take: paginacion.take,
+      }),
+      this.prisma.guia.count({ where }),
+    ]);
+
+    return construirRespuestaPaginada(datos, total, paginacion);
   }
 
   async findOne(id: number) {

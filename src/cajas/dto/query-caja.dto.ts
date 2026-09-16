@@ -1,6 +1,7 @@
 import { IsOptional, IsString } from 'class-validator';
+import { PaginacionQueryDto } from '../../common/dto/paginacion.dto';
 
-export class QueryCajaDto {
+export class QueryCajaDto extends PaginacionQueryDto() {
   @IsOptional()
   @IsString()
   estado?: string;

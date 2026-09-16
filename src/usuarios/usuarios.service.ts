@@ -6,10 +6,15 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  construirRespuestaPaginada,
+  resolverPaginacion,
+} from '../common/utils/paginacion.util';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { AssignPermisosDto } from './dto/assign-permisos.dto';
+import { QueryUsuarioDto } from './dto/query-usuario.dto';
 import { getFechaUTC6 } from '../common/utils/date.util';
 
 export interface UsuarioEjecutor {
@@ -89,26 +94,45 @@ export class UsuariosService {
     });
   }
 
-  async findAll(incluirAnulados = false) {
-    const usuarios = await this.prisma.usuario.findMany({
-      where: incluirAnulados ? {} : { anulado: false },
-      include: {
-        puesto: true,
-        permiso: {
-          include: {
-            moduloAccion: {
-              include: {
-                modulo: true,
-                accion: true,
+  async findAll(query?: QueryUsuarioDto) {
+    const paginacion = resolverPaginacion(query);
+    // Se compara contra la cadena exacta 'true', igual que en tickets y donaciones:
+    // `?incluirAnulados=1` se ignora hoy y debe seguir ignorándose.
+    const where = query?.incluirAnulados === 'true' ? {} : { anulado: false };
+
+    const [usuarios, total] = await Promise.all([
+      this.prisma.usuario.findMany({
+        where,
+        include: {
+          puesto: true,
+          permiso: {
+            include: {
+              moduloAccion: {
+                include: {
+                  modulo: true,
+                  accion: true,
+                },
               },
             },
           },
         },
-      },
-      orderBy: { nombre: 'asc' },
-    });
+        // El desempate por `id` no es decorativo: SQL Server resuelve `skip`/`take`
+        // con OFFSET..FETCH, y sobre una clave de orden que se repite —aquí el
+        // nombre, que no es único— no garantiza un orden estable entre páginas.
+        orderBy: [{ nombre: 'asc' }, { id: 'asc' }],
+        skip: paginacion.skip,
+        take: paginacion.take,
+      }),
+      this.prisma.usuario.count({ where }),
+    ]);
 
-    return usuarios.map(({ contrasena, ...user }) => user);
+    // Quitar la contraseña descarta un campo, nunca una fila: por eso `total` sale
+    // del `count` sobre el mismo `where` y no de la longitud de la página.
+    return construirRespuestaPaginada(
+      usuarios.map(({ contrasena, ...user }) => user),
+      total,
+      paginacion,
+    );
   }
 
   async findOne(id: number) {

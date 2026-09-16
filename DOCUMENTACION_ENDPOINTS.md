@@ -82,6 +82,7 @@ Respuesta de `POST /auth/login` y `POST /auth/refresh`:
 | `UPLOADS_DIR` | No | Carpeta raíz de archivos subidos (por defecto `./uploads`). Las imágenes de actividades van a `<UPLOADS_DIR>/actividades` |
 | `OFFLINE_EXPIRA_HORA` | No | Hora a la que vence un lote de folios offline (por defecto `6`) |
 | `SMTP_*` | Sí para correos | Configuración de Nodemailer |
+| `IA_BASE_URL` / `IA_API_KEY` / `IA_MODELO` | No | Interpretación de reportes en lenguaje natural (19.5). Sin `IA_API_KEY` el módulo arranca igual y solo esa ruta responde `503`; los 18 reportes predeterminados no la usan |
 
 ## Estructura de permisos
 
@@ -95,6 +96,7 @@ El sistema se organiza en **módulos generales**, que pueden agrupar **sub-módu
 | `Donaciones` | — | Registro, consulta y anulación de recibos de donación |
 | `ActividadesParque` | — | Publicación y consulta de actividades del parque, con sus imágenes y el catálogo de sectores (`/sectores`) |
 | `Bitacora` | — | Consulta de bitácora |
+| `Reportes` | — | Catálogo de reportes, ejecución en JSON y exportación a PDF y Excel |
 
 > **Emisión de Tickets es un módulo general**: atracciones, guías, tarifas y demás catálogos **no** son módulos de permiso aparte. Quien tiene permiso sobre `EmisionTickets` lo tiene sobre todo el módulo, con la granularidad de las 4 acciones.
 
@@ -108,7 +110,7 @@ Las rutas `/modulos`, `/acciones` y `/modulo-acciones` **exigen permiso sobre `U
 
 El menú **no** depende de ningún permiso: usa `GET /modulos/mis-modulos` (ver 4.7), que solo exige sesión válida. Así, cambiar la asignación de permisos nunca deja a un usuario sin navegación.
 
-Pendientes de implementar (aún sin código): `Sincronizacion` y `Reportes`.
+Pendiente de implementar (aún sin código): `Sincronizacion`.
 
 > **El permiso no siempre es la última palabra.** En `ActividadesParque`, editar y anular quedan además reservados al **autor** de cada publicación: tener la acción habilita publicar y mantener lo propio, no tocar lo ajeno (ver sección 16).
 
@@ -136,6 +138,50 @@ La supervisión se representa con **`Cajas.Editar`**, una acción que quedó lib
 > **Anular un cierre exige `Cajas.Editar`, no `Anular`.** De lo contrario el cajero podría cerrar, ver la diferencia, anular y volver a cerrar con la cifra exacta: el arqueo perdería todo valor de control. Con `Anular` sigue pudiendo anular tickets y aperturas equivocadas.
 >
 > Ocultar estas cifras es solo de cara al cliente: **el arqueo siempre se calcula y se guarda** en `CierreCaja`, así que los reportes y la auditoría lo conservan íntegro.
+
+## Paginación de listados
+
+Todos los listados de volumen relevante se paginan **en el servidor**. Aceptan los mismos dos parámetros y devuelven siempre el mismo sobre.
+
+| Parámetro | Por defecto | Máximo |
+|---|---|---|
+| `pagina` | `1` | — |
+| `limite` | `20` en todos | `200` (100 en `/actividades`) |
+
+```json
+{
+  "datos":  [ /* la página solicitada */ ],
+  "total":  1627,
+  "pagina": 1,
+  "limite": 20
+}
+```
+
+- **`total` es el conjunto filtrado completo, no el tamaño de la página.** Es con lo que el frontend calcula cuántas páginas hay; `datos.length` solo dice cuántas filas trajo esta petición.
+- Una `pagina` más allá del final devuelve `200` con `datos: []` y el `total` real, nunca un error.
+- `limite=0`, negativo o por encima del tope responde **`400`** con el mensaje en español.
+- Donde hay dinero (`/tickets`, `/donaciones`, `/cajas/cierres`) el sobre trae además `metricas`, que **describe el filtro completo y no cambia al pasar de página**.
+- **El orden es estable entre páginas.** Cada listado ordena por su clave natural y desempata por `id`. Sin ese desempate, dos filas con la misma fecha podrían repetirse o perderse al pasar de página: SQL Server resuelve `pagina`/`limite` con `OFFSET..FETCH`, que sobre una clave repetida no garantiza un orden determinado.
+
+**Endpoints paginados:** `/usuarios`, `/bitacora`, `/cajas`, `/cajas/cierres`, `/guias`, `/tarifas/historico`, `/tickets`, `/donaciones`, `/actividades`.
+
+**Endpoints que NO se paginan** — son catálogos cortos que alimentan selectores del formulario, y paginarlos los dejaría incompletos: `/puestos`, `/acciones`, `/modulos`, `/modulo-acciones`, `/modulos/mis-modulos`, `/sectores`, `/tarifas` (vigentes), `/tickets/catalogos`, `/auth/sesiones`. Siguen devolviendo un arreglo plano.
+
+> ### ⚠️ Cambio de contrato
+>
+> Estos cinco endpoints **dejaron de devolver un arreglo plano** y ahora devuelven el sobre. El frontend debe leer `.datos` en lugar de iterar la respuesta directamente:
+>
+> | Endpoint | Antes | Ahora |
+> |---|---|---|
+> | `GET /usuarios` | `[ … ]` | `{ datos, total, pagina, limite }` |
+> | `GET /bitacora` | `[ … ]` | `{ datos, total, pagina, limite }` |
+> | `GET /cajas` | `[ … ]` | `{ datos, total, pagina, limite }` |
+> | `GET /guias` | `[ … ]` | `{ datos, total, pagina, limite }` |
+> | `GET /tarifas/historico` | `[ … ]` | `{ datos, total, pagina, limite }` |
+>
+> `/tickets`, `/donaciones`, `/cajas/cierres` y `/actividades` ya devolvían el sobre: no cambian.
+>
+> Además, estos tres endpoints pasaron a validar su *query string* con un DTO. Un parámetro no reconocido, que antes se ignoraba en silencio, ahora responde `400`: `/usuarios` (`incluirAnulados`), `/guias` (`buscar`, `incluirAnulados`) y `/tarifas/historico` (`idAtraccion`, `idOrigen`) — más `pagina` y `limite` en los tres.
 
 ## Novedades en Cajas
 - **Apertura y cierre de caja con arqueo automático:** Se agregó el módulo `/cajas`. Al cerrar, el sistema calcula el monto esperado (`montoInicial + ventas en efectivo - gastos`) y lo compara contra el monto contado, generando una `diferencia` (sobrante/faltante).
@@ -177,6 +223,20 @@ La supervisión se representa con **`Cajas.Editar`**, una acción que quedó lib
 - **Variable de entorno nueva:** `UPLOADS_DIR` (opcional; por defecto `./uploads`).
 - **Seed:** `npx ts-node prisma/seed-actividades.ts` registra el módulo `ActividadesParque` con sus 4 acciones. Después, otorgar el permiso con `POST /usuarios/:id/permisos`.
 
+## Novedades en Reportes
+- **Módulo nuevo:** `/reportes` (sección 19), con **18 reportes predeterminados** que cubren los seis módulos principales: Tickets, Cajas, Donaciones, Bitácora, Usuarios y Actividades.
+- **Tres formatos:** JSON para pintar la tabla, PDF para imprimir y Excel para filtrar y sumar. El PDF y el Excel se generan **en el backend**; el frontend solo elige a qué URL navegar.
+- **Los números del Excel son números**, con su formato de moneda: la hoja trae autofiltro, encabezados congelados y totales con `SUBTOTAL`, que se recalculan al filtrar dentro de la hoja.
+- **Reportes a medida en lenguaje natural:** `POST /reportes/interpretar` traduce una frase como *"ventas del vendedor Juan en las cuevas en agosto"* a uno de esos mismos 18 reportes. **La IA traduce, no consulta**: nunca escribe SQL, nunca ve datos y nunca redacta una cifra.
+- **El uso diario no gasta cuota:** los 18 reportes predeterminados no salen a internet en ningún momento. Solo la petición escrita a mano consume una llamada, y su respuesta trae ya la URL de la vía normal para que repetirla sea gratis.
+- **A la IA no viaja ningún dato del negocio:** solo la frase del usuario y la descripción estructural del catálogo. Los nombres propios ("Juan", "cuevas") los resuelve el backend contra su propia base.
+- **Permisos en tres capas:** `Reportes.Ver` / `Reportes.Exportar` abren el módulo, cada reporte exige además `Ver` sobre el módulo dueño de sus datos, y las cifras del arqueo siguen reservadas a `Cajas.Editar` (19.6). Estrena la acción `'Exportar'`, que estaba en el catálogo sin usarse.
+- **El cajero sigue sin ver el monto esperado:** las columnas de supervisión se borran del dato, no del dibujo, así que tampoco aparecen en el JSON ni dentro del `.xlsx`.
+- **Toda generación queda en bitácora**, con la clave del reporte y el período.
+- **Índices nuevos:** `Bitacora` no tenía ninguno y `TicketPago.idTicket` tampoco. Además hay índices de cobertura que Prisma no sabe declarar; se aplican con `npx ts-node prisma/aplicar-indices-reportes.ts` después de cada `db push` (19.8).
+- **Variables de entorno nuevas (opcionales):** `IA_BASE_URL`, `IA_API_KEY`, `IA_MODELO`. Sin ellas el módulo arranca igual y solo la ruta de interpretación responde `503`.
+- **Seed:** `npx ts-node prisma/seed-reportes.ts` registra el módulo `Reportes` con `Ver` y `Exportar`. Después, otorgar los permisos con `POST /usuarios/:id/permisos`.
+
 ---
 
 ## Índice de Contenidos
@@ -186,6 +246,7 @@ La supervisión se representa con **`Cajas.Editar`**, una acción que quedó lib
 - [Seguridad y límites de peticiones](#seguridad-y-límites-de-peticiones) — `JWT_SECRET`, sesiones con refresh token, rate limit, variables de entorno
 - [Estructura de permisos](#estructura-de-permisos) — módulos generales, sub-módulos y catálogo de permisos
 - [Control de arqueo](#control-de-arqueo-qué-ve-el-cajero-y-qué-ve-el-supervisor) — qué cifras ve el cajero y cuáles solo el supervisor
+- [Paginación de listados](#paginación-de-listados) — `pagina`/`limite`, el sobre `{datos,total,pagina,limite}`, qué se pagina y qué no
 
 **Endpoints:**
 
@@ -207,6 +268,7 @@ La supervisión se representa con **`Cajas.Editar`**, una acción que quedó lib
 16. [Actividades del Parque (`/actividades`)](#16-actividades-del-parque-actividades)
 17. [Sectores del Parque (`/sectores`)](#17-sectores-del-parque-sectores)
 18. [Venta offline (`/tickets/lotes-offline`)](#18-venta-offline-ticketslotes-offline-ticketsemitir-offline)
+19. [Reportes (`/reportes`)](#19-reportes-reportes)
 
 ---
 
@@ -390,31 +452,37 @@ Registra un nuevo usuario en la base de datos bajo transacción atómica.
 
 ### 2.2 `GET /usuarios` (Listar Usuarios)
 * **Permiso requerido:** `Módulo: 'Usuarios'`, `Acción: 'Ver'`
-* **Query Params (Opcional):** `?incluirAnulados=true`
-* **Response (200 OK - JSON):**
+* **Query Params (todos opcionales):** `incluirAnulados=true`, `pagina` (default 1), `limite` (default 20, máx. 200)
+* **Response (200 OK - JSON):** sobre paginado — ver [Paginación de listados](#paginación-de-listados).
 ```json
-[
-  {
-    "id": 1,
-    "idPuesto": 1,
-    "nombre": "Administrador General",
-    "correo": "admin@aktunkan.com",
-    "telefono": "55551234",
-    "fechaCreacion": "2026-07-24T14:00:00.000Z",
-    "fechaActualizacion": "2026-07-24T14:00:00.000Z",
-    "anulado": false,
-    "puesto": {
+{
+  "datos": [
+    {
       "id": 1,
-      "nombre": "Administrador",
-      "descripcion": "Acceso total al sistema",
-      "anulado": false,
+      "idPuesto": 1,
+      "nombre": "Administrador General",
+      "correo": "admin@aktunkan.com",
+      "telefono": "55551234",
       "fechaCreacion": "2026-07-24T14:00:00.000Z",
-      "fechaActualizacion": "2026-07-24T14:00:00.000Z"
-    },
-    "permiso": []
-  }
-]
+      "fechaActualizacion": "2026-07-24T14:00:00.000Z",
+      "anulado": false,
+      "puesto": {
+        "id": 1,
+        "nombre": "Administrador",
+        "descripcion": "Acceso total al sistema",
+        "anulado": false,
+        "fechaCreacion": "2026-07-24T14:00:00.000Z",
+        "fechaActualizacion": "2026-07-24T14:00:00.000Z"
+      },
+      "permiso": []
+    }
+  ],
+  "total": 4,
+  "pagina": 1,
+  "limite": 20
+}
 ```
+> El listado **nunca** incluye `contrasena`, ni siquiera cifrada.
 
 ---
 
@@ -1059,53 +1127,68 @@ Obtiene los registros de auditoría ordenados descendentemente por fecha en huso
 * **Permiso requerido:** `Módulo: 'Bitacora'`, `Acción: 'Ver'`
 * **Query Params (Todos opcionales):**
   - `idUsuario` (número): Filtrar por ID de usuario ejecutor.
-  - `modulo` (texto): Filtrar por módulo (ej. `Auth`, `Usuarios`, `Puestos`, `Modulos`, `Acciones`).
-  - `accion` (texto): Filtrar por tipo de acción (ej. `INICIO_SESION`, `CREAR_USUARIO`, `EDITAR_PUESTO`, `ANULAR_MODULO`, `ASIGNAR_PERMISOS`).
+  - `modulo` (texto): Filtra por módulo, por **coincidencia parcial** (`contains`), no por igualdad.
+  - `accion` (texto): Filtra por tipo de acción, también por coincidencia parcial (ej. `INICIO_SESION`, `EMITIR_TICKET`, `ANULAR_DONACION`, `CIERRE_CAJA`, `ASIGNAR_PERMISOS`). Hay 45 acciones distintas registradas.
   - `fechaInicio` (ISO Date string): Filtrar desde fecha.
   - `fechaFin` (ISO Date string): Filtrar hasta fecha.
-  - `limite` (número, defecto `100`): Cantidad máxima de registros a retornar.
+  - `pagina` (número, defecto `1`): Página a devolver.
+  - `limite` (número, defecto `20`, máx. `200`): Registros por página.
 
-* **Response (200 OK - JSON):**
+> **`modulo` y `accion` son texto libre que escribe cada servicio al registrar, no claves foráneas.** `Bitacora.modulo` **no** es una FK a la tabla `Modulo` y sus valores no coinciden con ella: la bitácora escribe `Tickets`, `Auth`, `Gastos`, `TiposGasto` y `Modulos`, que no existen como módulo; y varios módulos (`Puestos`, `Guias`, `Atracciones`, `Paises`…) no tienen ni un registro.
+>
+> Los valores presentes hoy, por volumen: `Reportes`, `Tickets`, `Auth`, `Cajas`, `Donaciones`, `ActividadesParque`, `Usuarios`, `Gastos`, `TiposGasto`, `EmisionTickets`, `Modulos`, `Tarifas`.
+>
+> Por eso **no conviene poblar un selector de módulos con `GET /modulos`**: dejaría fuera `Tickets` —el segundo en volumen— y `Auth`, y ofrecería módulos sin ningún registro.
+>
+> Y como el filtro es `contains`, `?modulo=Tickets` devuelve **también** los de `EmisionTickets`. Es la única pareja que se solapa entre los valores actuales (`Gastos` no alcanza a `TiposGasto`, que va en singular).
+
+* **Response (200 OK - JSON):** sobre paginado — ver [Paginación de listados](#paginación-de-listados).
 ```json
-[
-  {
-    "id": 15,
-    "idUsuario": 1,
-    "usuarioNombre": "Administrador General",
-    "accion": "CREAR_USUARIO",
-    "modulo": "Usuarios",
-    "descripcion": "Se creo el nuevo usuario 'Carlos Mendoza' (carlos.mendoza@aktunkan.com) asignado al puesto 'Taquillero'.",
-    "fecha": "2026-07-25T03:45:00.000Z",
-    "usuario": {
-      "id": 1,
-      "nombre": "Administrador General",
-      "correo": "admin@aktunkan.com",
-      "puesto": {
+{
+  "datos": [
+    {
+      "id": 15,
+      "idUsuario": 1,
+      "usuarioNombre": "Administrador General",
+      "accion": "CREAR_USUARIO",
+      "modulo": "Usuarios",
+      "descripcion": "Se creo el nuevo usuario 'Carlos Mendoza' (carlos.mendoza@aktunkan.com) asignado al puesto 'Taquillero'.",
+      "fecha": "2026-07-25T03:45:00.000Z",
+      "usuario": {
         "id": 1,
-        "nombre": "Administrador"
+        "nombre": "Administrador General",
+        "correo": "admin@aktunkan.com",
+        "puesto": {
+          "id": 1,
+          "nombre": "Administrador"
+        }
       }
-    }
-  },
-  {
-    "id": 14,
-    "idUsuario": 2,
-    "usuarioNombre": "Carlos Mendoza",
-    "accion": "INICIO_SESION",
-    "modulo": "Auth",
-    "descripcion": "Inicio de sesión exitoso para el usuario 'Carlos Mendoza' (carlos.mendoza@aktunkan.com).",
-    "fecha": "2026-07-25T03:40:12.000Z",
-    "usuario": {
-      "id": 2,
-      "nombre": "Carlos Mendoza",
-      "correo": "carlos.mendoza@aktunkan.com",
-      "puesto": {
+    },
+    {
+      "id": 14,
+      "idUsuario": 2,
+      "usuarioNombre": "Carlos Mendoza",
+      "accion": "INICIO_SESION",
+      "modulo": "Auth",
+      "descripcion": "Inicio de sesión exitoso para el usuario 'Carlos Mendoza' (carlos.mendoza@aktunkan.com).",
+      "fecha": "2026-07-25T03:40:12.000Z",
+      "usuario": {
         "id": 2,
-        "nombre": "Taquillero"
+        "nombre": "Carlos Mendoza",
+        "correo": "carlos.mendoza@aktunkan.com",
+        "puesto": {
+          "id": 2,
+          "nombre": "Taquillero"
+        }
       }
     }
-  }
-]
+  ],
+  "total": 1627,
+  "pagina": 1,
+  "limite": 20
+}
 ```
+> Es la tabla que más crece del sistema. Antes topaba en 100 registros **sin forma de pedir los siguientes**; ahora `pagina` recorre el histórico completo y `total` dice cuántos hay.
 
 ---
 
@@ -1170,8 +1253,18 @@ Módulo de apertura y cierre de caja. Solo puede existir **una caja abierta a la
 
 ### 8.2 `GET /cajas` (Listar Aperturas)
 * **Permiso requerido:** `Módulo: 'Cajas'`, `Acción: 'Ver'`
-* **Query Params (Opcionales):** `?estado=Abierta`, `?fechaInicio=`, `?fechaFin=`, `?incluirAnulados=true`
-* **Response (200 OK - JSON):** Arreglo de objetos con la misma forma que 8.1.
+* **Query Params (todos opcionales):** `estado=Abierta`, `fechaInicio`, `fechaFin`, `incluirAnulados=true`, `pagina` (default 1), `limite` (default 20, máx. 200)
+* **Response (200 OK - JSON):** sobre paginado — ver [Paginación de listados](#paginación-de-listados). Cada elemento de `datos[]` tiene la misma forma que 8.1.
+
+```json
+{
+  "datos": [ /* aperturas con la forma de 8.1 */ ],
+  "total": 18,
+  "pagina": 1,
+  "limite": 20
+}
+```
+> A quien no tiene `Cajas.Editar` se le siguen omitiendo `montoEsperado` y `diferencia` **en cada elemento de `datos[]`**. Ocultarlos quita campos, nunca filas: `total` cuenta lo mismo para el cajero y para el supervisor.
 
 ---
 
@@ -1330,7 +1423,7 @@ Anula una apertura hecha por error. Solo permitido mientras la caja sigue `'Abie
 Vista de supervisión: todos los cierres con su arqueo, incluidos los anulados —que son la señal de que una caja se reabrió para corregir un monto.
 
 * **Permiso requerido:** `Módulo: 'Cajas'`, `Acción: 'Editar'`
-* **Query Params (todos opcionales):** `idUsuario` (quien abrió la caja), `fechaInicio`, `fechaFin`, `soloAnulados=true`, `incluirAnulados=true`, `pagina` (default 1), `limite` (default 50, máx. 200)
+* **Query Params (todos opcionales):** `idUsuario` (quien abrió la caja), `fechaInicio`, `fechaFin`, `soloAnulados=true`, `incluirAnulados=true`, `pagina` (default 1), `limite` (default 20, máx. 200)
 * **Response (200 OK - JSON):** Las métricas se agregan en el servidor sobre el filtro aplicado.
 ```json
 {
@@ -1354,7 +1447,7 @@ Vista de supervisión: todos los cierres con su arqueo, incluidos los anulados �
   ],
   "total": 12,
   "pagina": 1,
-  "limite": 50,
+  "limite": 20,
   "metricas": {
     "totalCierres": 12,
     "totalContado": "6100.0000",
@@ -1586,14 +1679,14 @@ Emisión de boletos del parque. Reglas que aplica el servidor:
 
 ### 11.2 `GET /tickets` (Historial con filtros y métricas)
 * **Permiso requerido:** `Módulo: 'EmisionTickets'`, `Acción: 'Ver'`
-* **Query Params (todos opcionales):** `buscar` (nombre, folio o guía), `idAtraccion`, `idOpcionPago`, `idOrigen`, `idPais`, `fechaInicio`, `fechaFin`, `incluirAnulados=true`, `pagina` (default 1), `limite` (default 50, máx. 200)
+* **Query Params (todos opcionales):** `buscar` (nombre, folio o guía), `idAtraccion`, `idOpcionPago`, `idOrigen`, `idPais`, `fechaInicio`, `fechaFin`, `incluirAnulados=true`, `pagina` (default 1), `limite` (default 20, máx. 200)
 * **Response (200 OK - JSON):** Las métricas se calculan en el servidor sobre el filtro aplicado, no solo sobre la página.
 ```json
 {
   "datos": [ /* tickets con la misma forma que 11.1 */ ],
   "total": 128,
   "pagina": 1,
-  "limite": 50,
+  "limite": 20,
   "metricas": {
     "totalTickets": 133,
     "ticketsVigentes": 12,
@@ -1722,13 +1815,27 @@ Editar un precio **no sobrescribe** la fila: cierra la vigencia de la tarifa act
 
 | Método | Ruta | Permiso | Descripción |
 |---|---|---|---|
-| GET | `/tarifas` | `EmisionTickets` / `Ver` | Tarifas vigentes (atracción + origen + categoría) |
-| GET | `/tarifas/historico` | `EmisionTickets` / `Ver` | Historial completo. Filtros: `idAtraccion`, `idOrigen` |
+| GET | `/tarifas` | `EmisionTickets` / `Ver` | Tarifas vigentes (atracción + origen + categoría). **Sin paginar**: alimenta el formulario de emisión |
+| GET | `/tarifas/historico` | `EmisionTickets` / `Ver` | Historial, **paginado**. Filtros: `idAtraccion`, `idOrigen`, `pagina`, `limite` |
 | GET | `/tarifas/guia` | `EmisionTickets` / `Ver` | Tarifa vigente del ticket de guía sin carnet |
 | PATCH | `/tarifas` | `EmisionTickets` / `Editar` | `{ idAtraccion, idOrigen, idTipoVisitante, precio }` |
 | PATCH | `/tarifas/guia` | `EmisionTickets` / `Editar` | `{ precio }` |
 
 Validación: se rechaza precio ≤ 0 salvo en la categoría `nino_menor`, la única que admite Q0.
+
+`GET /tarifas/historico` devuelve el sobre paginado (`pagina` default 1, `limite` default 20, máx. 200) — ver [Paginación de listados](#paginación-de-listados):
+
+```json
+{
+  "datos": [ /* tarifas, de la más reciente a la más antigua por atracción y origen */ ],
+  "total": 15,
+  "pagina": 1,
+  "limite": 20
+}
+```
+> `GET /tarifas` (vigentes) **no** se pagina: es el catálogo que llena el formulario de emisión y debe venir completo. Sigue devolviendo un arreglo plano.
+>
+> Los filtros pasaron a validarse con un DTO: `?idAtraccion=abc` ahora responde `400` en lugar de ignorarse.
 
 ---
 
@@ -1783,13 +1890,34 @@ Todos exigen el módulo **`EmisionTickets`**.
 
 | Método | Ruta | Acción | Descripción |
 |---|---|---|---|
-| GET | `/guias` | `Ver` | Listado para el selector. Query: `buscar` (filtra por nombre), `incluirAnulados=true` |
+| GET | `/guias` | `Ver` | Listado **paginado**. Query: `buscar` (filtra por nombre), `incluirAnulados=true`, `pagina`, `limite` |
 | GET | `/guias/:id` | `Ver` | Detalle, con `_count.tickets` (cuántos tickets tiene asociados) |
 | PATCH | `/guias/:id` | `Editar` | Corregir `nombre`, `tieneCarnet` y `numeroCarnet` |
 | PATCH | `/guias/:id/activar` | `Editar` | Reactivar un guía anulado |
 | DELETE | `/guias/:id` | `Anular` | Baja lógica: desaparece del selector, los tickets emitidos conservan la referencia |
 
-* **Response (200 OK - JSON):**
+* **Response de `GET /guias` (200 OK - JSON):** sobre paginado — ver [Paginación de listados](#paginación-de-listados).
+```json
+{
+  "datos": [
+    {
+      "id": 14,
+      "nombre": "Carlos Garcia",
+      "tieneCarnet": true,
+      "numeroCarnet": "GTK-1002",
+      "anulado": false,
+      "fechaCreacion": "2026-08-14T22:41:10.000Z",
+      "fechaActualizacion": "2026-08-15T18:20:00.000Z"
+    }
+  ],
+  "total": 3,
+  "pagina": 1,
+  "limite": 20
+}
+```
+> El selector de guías debe leer `.datos`. Si necesita la lista entera de una vez, pida `?limite=200`.
+
+* **Response de `GET /guias/:id` (200 OK - JSON):** un solo objeto con esa misma forma.
 ```json
 {
   "id": 14,
@@ -1864,14 +1992,14 @@ Reglas del módulo:
 
 ### 15.2 `GET /donaciones` (Listado de recibos)
 * **Permiso requerido:** `Módulo: 'Donaciones'`, `Acción: 'Ver'`
-* **Query Params (todos opcionales):** `buscar` (folio o nombre del donante), `idUsuario`, `idAperturaCaja`, `fechaInicio`, `fechaFin`, `incluirAnulados=true`, `pagina` (default 1), `limite` (default 50, máx. 200)
+* **Query Params (todos opcionales):** `buscar` (folio o nombre del donante), `idUsuario`, `idAperturaCaja`, `fechaInicio`, `fechaFin`, `incluirAnulados=true`, `pagina` (default 1), `limite` (default 20, máx. 200)
 * **Response (200 OK - JSON):** Las métricas se agregan en el servidor sobre el filtro aplicado.
 ```json
 {
   "datos": [ /* recibos con la misma forma que 15.1 */ ],
   "total": 2,
   "pagina": 1,
-  "limite": 50,
+  "limite": 20,
   "metricas": {
     "totalRecibos": 25,
     "recibosVigentes": 1,
@@ -2542,3 +2670,336 @@ En SQL Server un índice único admite **una sola fila con `NULL`**, y las dos c
 > **Perderlos no falla de forma visible.** Simplemente desaparece la garantía de idempotencia y los reintentos de la cola empiezan a duplicar tickets **en silencio**. El script es idempotente y verifica que los índices queden únicos *y* filtrados.
 
 **Variable de entorno opcional:** `OFFLINE_EXPIRA_HORA` (hora a la que vence la jornada; por defecto `6`).
+
+---
+
+## 19. Reportes (`/reportes`)
+
+> **Para integrar desde el frontend, empieza por [`REPORTES_FRONTEND.md`](./REPORTES_FRONTEND.md)**:
+> trae el componente de tabla genérico, cómo descargar los archivos protegidos y un
+> checklist de integración. Esta sección es la especificación del contrato.
+
+Reportes del sistema en **dos vías**, y conviene tener clara la diferencia antes de integrar:
+
+| | Vía predeterminada | Vía a medida |
+|---|---|---|
+| Ruta | `GET /reportes/:clave` (+ `/pdf`, `/excel`) | `POST /reportes/interpretar` |
+| Qué hace | Ejecuta uno de los **18 reportes del catálogo** | Traduce una frase en español a uno de esos mismos 18 reportes |
+| ¿Llama a un servicio externo? | **No, nunca** | Sí, una vez, solo para elegir el reporte y los filtros |
+| ¿Consume cuota? | No | Sí |
+| Si el proveedor de IA cae | Sigue funcionando | `503` |
+
+**Las cifras las produce siempre el mismo código.** La IA no consulta la base, no escribe SQL y
+no redacta ningún número: devuelve una clave de una lista cerrada y unos filtros en texto, que
+el servidor valida y resuelve contra su propia base. Un reporte pedido por frase y el mismo
+pedido con botones dan exactamente el mismo resultado.
+
+Los botones del frontend deben pegar a la **vía predeterminada**. La vía a medida es para cuando
+alguien necesita algo que no está en el catálogo.
+
+### 19.1 `GET /reportes` (Catálogo)
+
+* **Permiso requerido:** `Módulo: 'Reportes'`, `Acción: 'Ver'`
+
+Devuelve **solo los reportes que ese usuario puede ejecutar**: el catálogo se filtra por el
+permiso del módulo dueño de los datos de cada reporte (ver 19.6). Alimenta el menú y los
+formularios de filtro del frontend.
+
+* **Response (200 OK - JSON):**
+```json
+{
+  "datos": [
+    {
+      "clave": "ventas-por-vendedor",
+      "titulo": "Ventas por vendedor",
+      "descripcion": "Cuánto vendió cada cajero o vendedor en el período...",
+      "categoria": "Tickets",
+      "moduloOrigen": "EmisionTickets",
+      "soloSupervisor": false,
+      "orientacion": "vertical",
+      "filtros": [
+        {
+          "clave": "periodo",
+          "etiqueta": "Período",
+          "tipo": "rangoFechas",
+          "descripcion": "Rango de fechas del reporte, ambas inclusive...",
+          "requerido": true,
+          "parametros": ["desde", "hasta"]
+        },
+        {
+          "clave": "vendedor",
+          "etiqueta": "Vendedor",
+          "tipo": "usuario",
+          "descripcion": "...",
+          "parametros": ["vendedor"]
+        }
+      ],
+      "formatos": ["json", "pdf", "excel"]
+    }
+  ],
+  "total": 18,
+  "interpretacionDisponible": true
+}
+```
+
+`interpretacionDisponible` es `false` cuando no hay `IA_API_KEY` configurada: con ese valor el
+frontend no debe pintar el campo de petición en lenguaje natural.
+
+> **`clave` frente a `parametros`.** `clave` identifica el control que pinta el frontend;
+> `parametros` son los nombres reales de la query string. Casi siempre coinciden, pero el
+> rango de fechas es **un** control y **dos** parámetros (`desde` y `hasta`): un formulario
+> genérico que use `clave` mandaría `periodo=...` y se llevaría un `400`. Úsese siempre
+> `parametros` para armar la URL.
+
+---
+
+### 19.2 Catálogo de reportes
+
+| Clave | Categoría | Módulo de permiso | Qué responde |
+|---|---|---|---|
+| `ventas-resumen` | Tickets | `EmisionTickets` | Recaudado, tickets, personas y ticket promedio del período, con una fila por día |
+| `ventas-por-vendedor` | Tickets | `EmisionTickets` | Cuánto vendió cada cajero y qué porcentaje del total representa |
+| `ventas-por-atraccion` | Tickets | `EmisionTickets` | Cuevas vs. mariposario, con segunda sección por tipo de recorrido |
+| `ventas-por-tipo-visitante` | Tickets | `EmisionTickets` | Adultos, niños, niños menores y centros educativos: personas y subtotal |
+| `ventas-por-origen` | Tickets | `EmisionTickets` | Nacional vs. extranjero, con segunda sección por país |
+| `ventas-por-forma-pago` | Tickets | `EmisionTickets` | Efectivo vs. tarjeta, separando `PAGADO` / `PENDIENTE` / `CANCELADO` |
+| `ventas-detalle` | Tickets | `EmisionTickets` | El libro de ventas: un renglón por ticket |
+| `tickets-anulados` | Tickets | `EmisionTickets` | Qué se anuló, cuándo, por cuánto y quién lo emitió |
+| `cajas-turnos` | Cajas | `Cajas` | Turnos del período con apertura, cierre, inicial y contado (+ arqueo si supervisa) |
+| `arqueo-de-caja` | Cajas | `Cajas` | Arqueo detallado de un turno. **Solo supervisor**; exige el filtro `caja` |
+| `donaciones-resumen` | Donaciones | `Donaciones` | Recaudado en donaciones por día y por usuario que las recibió |
+| `donaciones-detalle` | Donaciones | `Donaciones` | Listado de recibos, con los anulados marcados y sin monto |
+| `bitacora-detalle` | Bitácora | `Bitacora` | Registro cronológico de acciones: fecha, usuario, módulo, acción y descripción |
+| `bitacora-resumen` | Bitácora | `Bitacora` | Conteo de acciones por módulo, por usuario y por tipo de acción |
+| `usuarios-listado` | Usuarios | `Usuarios` | Padrón con puesto, estado, fecha de alta y último acceso |
+| `usuarios-permisos` | Usuarios | `Usuarios` | Matriz de permisos: una fila por usuario, una columna por módulo |
+| `actividades-listado` | Actividades | `ActividadesParque` | Actividades del período con sector, responsable y estado |
+| `actividades-por-sector` | Actividades | `ActividadesParque` | Conteo por sector y por responsable |
+
+---
+
+### 19.3 `GET /reportes/:clave` (Ejecutar en JSON)
+
+* **Permiso requerido:** `Módulo: 'Reportes'`, `Acción: 'Ver'` **más** `Ver` sobre el módulo de origen (19.6)
+* **Query Params:** los que declare el reporte en su `filtros`. Todos opcionales salvo donde se
+  indique. Un parámetro no declarado devuelve `400`.
+
+| Parámetro | Acepta | Notas |
+|---|---|---|
+| `desde` / `hasta` | `AAAA-MM-DD` | Ambas inclusive. Si se omiten, se usa el mes en curso. Máximo 366 días |
+| `vendedor`, `atraccion`, `origen`, `pais`, `guia`, `tipoVisitante`, `tipoRecorrido`, `formaPago`, `sector` | **id o nombre** | El frontend manda ids porque ya tiene los catálogos; también acepta el nombre y lo resuelve |
+| `caja` | id de la apertura | Obligatorio en `arqueo-de-caja` |
+| `modulo`, `accion` | texto | Solo en los reportes de bitácora; coincidencia parcial |
+| `incluirAnulados` | `true` / `false` | Solo donde el reporte lo declara |
+
+* **Response (200 OK - JSON):**
+```json
+{
+  "clave": "ventas-por-vendedor",
+  "titulo": "Ventas por vendedor",
+  "subtitulo": null,
+  "periodo": { "desde": "2026-08-01", "hasta": "2026-08-31", "etiqueta": "1 al 31 de agosto de 2026" },
+  "filtrosAplicados": [{ "etiqueta": "Atracción", "valor": "Cuevas Actun Kan" }],
+  "kpis": [
+    { "etiqueta": "Recaudado", "valor": "Q315.00" },
+    { "etiqueta": "Tickets emitidos", "valor": "13" }
+  ],
+  "secciones": [
+    {
+      "titulo": null,
+      "columnas": [
+        { "clave": "grupo", "titulo": "Vendedor", "formato": "texto", "ancho": 0.32 },
+        { "clave": "tickets", "titulo": "Tickets", "formato": "entero", "total": "suma" },
+        { "clave": "total", "titulo": "Total", "formato": "moneda", "total": "suma" },
+        { "clave": "participacion", "titulo": "% del total", "formato": "porcentaje" }
+      ],
+      "filas": [
+        { "grupo": "Giselle Pereira", "tickets": 11, "personas": 11, "total": "215.0000", "participacion": "0.682540" }
+      ],
+      "totales": { "tickets": "13", "personas": "16", "total": "315.0000" },
+      "filasDisponibles": 2
+    }
+  ],
+  "orientacion": "vertical",
+  "notas": ["Los tickets anulados nunca suman al recaudado..."],
+  "generadoEn": "2026-09-05T09:48:00.000Z",
+  "generadoPor": "Romeo Santos",
+  "truncado": false
+}
+```
+
+**Cómo pintarlo.** La estructura es genérica a propósito: `columnas` dice cómo formatear cada
+celda y el frontend no necesita conocer ningún reporte en concreto.
+
+| `formato` | Cómo se muestra |
+|---|---|
+| `moneda` | `Q` + separador de miles + 2 decimales |
+| `entero` | Separador de miles, sin decimales |
+| `decimal` | Separador de miles, `decimales` decimales (2 por defecto) |
+| `porcentaje` | El valor es una **fracción** (`0.6825`); se multiplica por 100 al mostrar |
+| `fecha` | `AAAA-MM-DD` |
+| `fechaHora` | `AAAA-MM-DD HH:MM` |
+| `texto` | Tal cual |
+
+* Los importes viajan como **cadena decimal**, no como número: parsearlos con `Number` antes de
+  sumar reintroduce el error de coma flotante. Para mostrar basta con formatear.
+* `alineacion` es opcional; por omisión los formatos numéricos van a la derecha.
+* Una celda `null` significa sin dato y conviene mostrarla como `—`, no en blanco: una celda
+  vacía se confunde con un cero perdido.
+* Un reporte puede traer **varias secciones**, cada una con sus propias columnas.
+* `truncado: true` significa que se alcanzó el tope de filas; el motivo va en la primera nota.
+
+* **Errores:**
+  * `400` — fecha mal formada, rango invertido, rango de más de 366 días, o parámetro no declarado.
+  * `403` — falta el permiso del módulo de origen, o el reporte es solo de supervisor.
+  * `404` — la clave no existe; el mensaje lista las válidas.
+  * `422` — un filtro por nombre no se pudo resolver, o coincide con varias opciones (el mensaje trae los candidatos).
+
+---
+
+### 19.4 `GET /reportes/:clave/pdf` y `GET /reportes/:clave/excel`
+
+* **Permiso requerido:** `Módulo: 'Reportes'`, `Acción: 'Exportar'` **más** `Ver` sobre el módulo de origen
+* **Query Params:** idénticos a 19.3
+
+Mismos datos, otro envoltorio. El selector PDF/Excel del frontend es elegir a cuál de las dos
+URL navegar; el resto de la query string no cambia.
+
+| | PDF | Excel |
+|---|---|---|
+| `Content-Type` | `application/pdf` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` |
+| `Content-Disposition` | `inline` | `attachment` |
+| Tope de filas | 5 000 | 50 000 |
+| Para qué sirve | Imprimir, archivar, firmar | Filtrar, sumar, tablas dinámicas |
+
+* **PDF:** tamaño carta, con los logos, el período, la línea de filtros aplicados, tarjetas de
+  indicadores, una tabla por sección con el encabezado repetido en cada página, fila de totales y
+  pie con «Página X de Y». La orientación la decide el reporte según lo que necesiten sus columnas.
+* **Excel:** una hoja `Resumen` con los indicadores y las notas, más una hoja por sección. **Los
+  números se escriben como números**, con su formato: al seleccionar una columna de montos, Excel
+  muestra la suma. Cada hoja lleva autofiltro, encabezados congelados y una fila de totales con
+  `SUBTOTAL`, que se recalcula al filtrar dentro de la hoja.
+
+> El xlsx va como `attachment` y no `inline` a propósito: ningún navegador lo renderiza, y en
+> línea solo consigue abrirse como basura binaria en una pestaña.
+
+---
+
+### 19.5 `POST /reportes/interpretar` (Reporte a medida)
+
+* **Permiso requerido:** `Módulo: 'Reportes'`, `Acción: 'Ver'`
+* **Límite:** 15 peticiones por minuto (más estricto que el global: la cuota gratuita del
+  proveedor es el recurso escaso)
+* **Request Body (JSON):**
+```json
+{ "instruccion": "ventas del vendedor Juan en las cuevas en agosto, desglosadas por día" }
+```
+
+La instrucción es texto libre, de 5 a 500 caracteres.
+
+* **Response (200 OK - JSON):**
+```json
+{
+  "instruccion": "ventas del vendedor Juan en las cuevas en agosto, desglosadas por día",
+  "interpretacion": "Ventas de Juan Pérez en Cuevas Actun Kan, del 1 al 31 de agosto de 2026, por día.",
+  "especificacion": {
+    "clave": "ventas-resumen",
+    "filtros": { "desde": "2026-08-01", "hasta": "2026-08-31", "vendedor": "Juan", "atraccion": "cuevas" }
+  },
+  "formato": "pdf",
+  "urlDescarga": "/reportes/ventas-resumen/pdf?desde=2026-08-01&hasta=2026-08-31&vendedor=4&atraccion=1",
+  "resultado": { "...": "el mismo objeto de 19.3" }
+}
+```
+
+**Cómo integrarlo:**
+
+1. Mostrar `interpretacion` para que el usuario confirme que se le entendió.
+2. Pintar `resultado` con el mismo componente de tabla de 19.3.
+3. Resaltar el botón del formato que indica `formato` (`pdf` salvo que la frase pidiera Excel
+   de forma explícita) y **descargar contra `urlDescarga`**, que ya es una URL de la vía 1.
+
+> **La descarga no cuesta otra llamada a la IA**, ni la primera vez ni al cambiar de PDF a Excel:
+> `urlDescarga` apunta a la vía predeterminada, con los ids ya resueltos. Guardarla como favorito
+> convierte una petición en lenguaje natural en un botón permanente y gratuito.
+
+* **Errores:**
+  * `400` — instrucción vacía, demasiado corta o de más de 500 caracteres.
+  * `422` — no se pudo interpretar tras dos intentos (el mensaje lista los reportes disponibles),
+    o un nombre del filtro es ambiguo.
+  * `503` — no hay `IA_API_KEY` configurada, el proveedor no responde, o se agotó la cuota diaria.
+    **Los 18 reportes predeterminados siguen funcionando.**
+
+**Qué sale del servidor hacia el proveedor:** la frase que escribió el usuario, la descripción
+estructural del catálogo (claves, descripciones y nombres de filtro) y la fecha de hoy. **Nada
+más.** Ni un nombre de empleado, ni un catálogo con datos, ni una cifra: los nombres propios los
+resuelve el backend contra su propia base después de recibir la respuesta.
+
+---
+
+### 19.6 Permisos: tres capas, no una
+
+`Reportes.Ver` abre el módulo, **no los datos**.
+
+1. **Ruta** — `Reportes.Ver` para consultar y `Reportes.Exportar` para descargar.
+2. **Reporte** — además hace falta `Ver` sobre el módulo dueño de las cifras (columna «Módulo de
+   permiso» en 19.2). Sin esta capa, dar acceso a reportes entregaría de golpe la bitácora, la
+   matriz de permisos y las donaciones a quien solo debía ver tickets. `GET /reportes` ya filtra
+   el catálogo por lo mismo, así que cada quien solo ve lo que puede ejecutar.
+3. **Columna** — las cifras del arqueo (`montoEsperado`, `diferencia`) exigen `Cajas.Editar`, la
+   misma acción que representa supervisión en `/cajas`.
+
+> **Las columnas de supervisión se borran del dato, no del dibujo.** No es un detalle de
+> presentación: quien cuenta el efectivo no debe conocer el monto esperado, porque bastaría
+> teclear esa cifra para que ningún faltante saliera a la luz. Si solo se ocultaran al dibujar,
+> el valor seguiría viajando en el JSON y dentro del `.xlsx`, y el control de `/cajas` quedaría
+> anulado por la puerta de atrás. Un cajero que pide `cajas-turnos` recibe la tabla sin esas
+> columnas y sin esas claves en las filas.
+
+`arqueo-de-caja` es supervisor de principio a fin: no basta con quitarle columnas, porque el
+desglose completo permitiría deducir la cifra.
+
+**Toda generación queda en bitácora** (`modulo: 'Reportes'`), con `GENERAR_REPORTE` para las
+consultas y `EXPORTAR_REPORTE` para las descargas, indicando la clave y el período. Un módulo que
+expone dinero, nombres y permisos tiene que dejar rastro de quién consultó qué.
+
+---
+
+### 19.7 Reglas de negocio que respetan todos los reportes
+
+* **Los anulados nunca suman dinero.** Un ticket anulado no cobró nada ni dio acceso, y ya salió
+  del arqueo de su caja. Se cuentan y se muestran por separado.
+* **El dinero viaja como cadena decimal.** Nunca pasa por coma flotante dentro del servidor.
+* **El día es el de Guatemala (UTC-6).** «Del 1 al 31 de agosto» incluye el 31 completo. Las
+  ventas se imputan por su fecha de registro en el servidor, igual que `GET /tickets` y el arqueo:
+  una venta offline subida a la mañana siguiente cuenta en el día en que se subió.
+* **Rango máximo de 366 días**, para que una consulta no bloquee el pool de conexiones.
+
+---
+
+### 19.8 Despliegue
+
+```bash
+# 1. Módulo de permisos (aditivo e idempotente)
+npx ts-node prisma/seed-reportes.ts
+
+# 2. Índices de cobertura que Prisma no sabe declarar (INCLUDE)
+npx prisma db push
+npx ts-node prisma/aplicar-indices-reportes.ts
+
+# 3. Asignar los permisos a cada usuario
+#    POST /usuarios/:id/permisos  -> Reportes.Ver y Reportes.Exportar
+```
+
+Igual que los índices de la venta offline (18.7), los de reportes hay que **volver a aplicarlos
+después de cada `db push`**: Prisma no recrea lo que no conoce. Perderlos no cambia ninguna cifra
+—los reportes siguen siendo correctos— pero cada uno pasa de resolverse con el índice a recorrer
+la tabla entera.
+
+El esquema también incorpora índices nuevos que sí son declarables y llegan con la migración:
+`Bitacora` no tenía **ninguno** y ahora soporta dos reportes; `TicketPago.idTicket` tampoco, y
+SQL Server no indexa las claves foráneas por su cuenta.
+
+**Variables de entorno nuevas (opcionales):** `IA_BASE_URL`, `IA_API_KEY`, `IA_MODELO`. Solo las
+usa 19.5. Para cambiar de proveedor basta con editarlas: cualquiera que hable el contrato de
+OpenAI sirve (Gemini por defecto; Groq con `IA_BASE_URL=https://api.groq.com/openai/v1`).

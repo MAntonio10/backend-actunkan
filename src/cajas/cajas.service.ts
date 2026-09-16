@@ -8,6 +8,10 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
+import {
+  construirRespuestaPaginada,
+  resolverPaginacion,
+} from '../common/utils/paginacion.util';
 import { AbrirCajaDto } from './dto/abrir-caja.dto';
 import { CerrarCajaDto } from './dto/cerrar-caja.dto';
 import { QueryCajaDto } from './dto/query-caja.dto';
@@ -236,6 +240,7 @@ export class CajasService {
 
   async findAll(query: QueryCajaDto, idUsuario?: number) {
     const { estado, fechaInicio, fechaFin, incluirAnulados } = query || {};
+    const paginacion = resolverPaginacion(query);
     const where: any = {};
 
     if (incluirAnulados !== 'true') {
@@ -252,14 +257,28 @@ export class CajasService {
       if (fechaFin) where.fechaCreacion.lte = new Date(fechaFin);
     }
 
-    const cajas = await this.prisma.aperturaCaja.findMany({
-      where,
-      include: INCLUDE_DETALLE,
-      orderBy: { fechaCreacion: 'desc' },
-    });
+    const [cajas, total] = await Promise.all([
+      this.prisma.aperturaCaja.findMany({
+        where,
+        include: INCLUDE_DETALLE,
+        // El desempate por `id` no es decorativo: SQL Server resuelve `skip`/`take`
+        // con OFFSET..FETCH, y sobre una clave de orden que se repite no garantiza
+        // un orden estable entre páginas: una fila puede salir dos veces o ninguna.
+        orderBy: [{ fechaCreacion: 'desc' }, { id: 'desc' }],
+        skip: paginacion.skip,
+        take: paginacion.take,
+      }),
+      this.prisma.aperturaCaja.count({ where }),
+    ]);
 
-    if (await this.esSupervisor(idUsuario)) return cajas;
-    return cajas.map((c) => this.ocultarArqueoDeCaja(c));
+    // Ocultar el arqueo quita campos, nunca filas. Por eso `total` sale del `count`
+    // sobre el mismo `where` y no de `datos.length`: si alguien convirtiera esto en
+    // un filtro, el contador dejaría de cuadrar con lo que se muestra.
+    const datos = (await this.esSupervisor(idUsuario))
+      ? cajas
+      : cajas.map((c) => this.ocultarArqueoDeCaja(c));
+
+    return construirRespuestaPaginada(datos, total, paginacion);
   }
 
   async obtenerActual() {
@@ -293,8 +312,7 @@ export class CajasService {
    */
   async historialCierres(query: QueryCierreDto) {
     const { idUsuario, fechaInicio, fechaFin, soloAnulados, incluirAnulados } = query || {};
-    const pagina = query?.pagina && query.pagina > 0 ? query.pagina : 1;
-    const limite = query?.limite && query.limite > 0 ? query.limite : 50;
+    const paginacion = resolverPaginacion(query);
 
     const where: any = {};
 
@@ -320,9 +338,12 @@ export class CajasService {
             },
           },
         },
-        orderBy: { fechaCierre: 'desc' },
-        skip: (pagina - 1) * limite,
-        take: limite,
+        // El desempate por `id` no es decorativo: SQL Server resuelve `skip`/`take`
+        // con OFFSET..FETCH, y sobre una clave de orden que se repite no garantiza
+        // un orden estable entre páginas: una fila puede salir dos veces o ninguna.
+        orderBy: [{ fechaCierre: 'desc' }, { id: 'desc' }],
+        skip: paginacion.skip,
+        take: paginacion.take,
       }),
       this.prisma.cierreCaja.count({ where }),
       this.prisma.cierreCaja.aggregate({
@@ -332,10 +353,7 @@ export class CajasService {
     ]);
 
     return {
-      datos,
-      total,
-      pagina,
-      limite,
+      ...construirRespuestaPaginada(datos, total, paginacion),
       metricas: {
         totalCierres: total,
         totalContado: (agregados._sum.montoFinal ?? new Prisma.Decimal(0)).toString(),

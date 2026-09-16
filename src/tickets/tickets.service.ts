@@ -10,12 +10,17 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { CajasService } from '../cajas/cajas.service';
 import { EjecutorInfo } from '../common/utils/ejecutor.util';
+import {
+  construirRespuestaPaginada,
+  resolverPaginacion,
+} from '../common/utils/paginacion.util';
 import { getFechaUTC6 } from '../common/utils/date.util';
 import { generarCorrelativo } from '../common/utils/correlativo.util';
 import { construirPayloadQr, firmarNumeroTicket, verificarFirmaTicket } from '../common/utils/qr.util';
 import { resolverTarifaEn, resolverTarifaGuiaEn } from '../tarifas/resolver-tarifa.util';
 import { GuiasService } from '../guias/guias.service';
 import { RecurrenteService } from '../pagos/recurrente.service';
+import { MailService } from '../mail/mail.service';
 import { ESTADO_PAGO_PAGADO, ESTADO_PAGO_PENDIENTE } from '../pagos/pagos.service';
 import { EmitirTicketDto } from './dto/emitir-ticket.dto';
 import { QueryTicketDto } from './dto/query-ticket.dto';
@@ -47,6 +52,7 @@ export class TicketsService {
     private readonly cajasService: CajasService,
     private readonly bitacoraService: BitacoraService,
     private readonly recurrente: RecurrenteService,
+    private readonly mailService: MailService,
   ) {}
 
   private async obtenerNombreEjecutor(tx: any, ejecutor?: EjecutorInfo) {
@@ -626,8 +632,7 @@ export class TicketsService {
       incluirAnulados,
     } = query || {};
 
-    const pagina = query?.pagina && query.pagina > 0 ? query.pagina : 1;
-    const limite = query?.limite && query.limite > 0 ? query.limite : 50;
+    const paginacion = resolverPaginacion(query);
 
     const where: any = {};
 
@@ -671,9 +676,12 @@ export class TicketsService {
         where,
         include: INCLUDE_TICKET,
         // El folio es texto: su orden alfabético no es el cronológico.
-        orderBy: { fechaCreacion: 'desc' },
-        skip: (pagina - 1) * limite,
-        take: limite,
+        // El desempate por `id` no es decorativo: SQL Server resuelve `skip`/`take`
+        // con OFFSET..FETCH, y sobre una clave de orden que se repite no garantiza
+        // un orden estable entre páginas: una fila puede salir dos veces o ninguna.
+        orderBy: [{ fechaCreacion: 'desc' }, { id: 'desc' }],
+        skip: paginacion.skip,
+        take: paginacion.take,
       }),
       this.prisma.ticket.count({ where }),
       this.prisma.ticket.aggregate({
@@ -691,10 +699,11 @@ export class TicketsService {
     ]);
 
     return {
-      datos: datos.map((t) => this.formatearTicket(t)),
-      total,
-      pagina,
-      limite,
+      ...construirRespuestaPaginada(
+        datos.map((t) => this.formatearTicket(t)),
+        total,
+        paginacion,
+      ),
       metricas: {
         // Cuántos trae el listado con el filtro aplicado; cuadra con la paginación.
         totalTickets: total,
@@ -723,6 +732,68 @@ export class TicketsService {
     }
 
     return this.formatearTicket(ticket);
+  }
+
+  /**
+   * Envía por correo el enlace de pago de un ticket con tarjeta.
+   *
+   * El enlace **no viaja en la petición**: se lee del `TicketPago` guardado. Si
+   * lo mandara el cliente, este endpoint sería un relé para enviar cualquier URL
+   * a cualquier dirección con el nombre del parque en el remitente.
+   */
+  async enviarEnlacePago(
+    id: number,
+    correo: string,
+    ejecutor?: EjecutorInfo,
+  ) {
+    const ticket = await this.findOne(id);
+
+    if (ticket.anulado) {
+      throw new BadRequestException(
+        `El ticket ${ticket.numeroTicket} está anulado: su enlace de pago ya no sirve.`,
+      );
+    }
+
+    const pagos: any[] = Array.isArray((ticket as any).ticketPagos)
+      ? (ticket as any).ticketPagos
+      : [];
+    const pendiente = pagos.find(
+      (p) => !p.anulado && p.estadoPago === 'PENDIENTE' && p.checkoutUrl,
+    );
+
+    if (!pendiente) {
+      const yaPagado = pagos.some((p) => !p.anulado && p.estadoPago === 'PAGADO');
+      throw new BadRequestException(
+        yaPagado
+          ? `El ticket ${ticket.numeroTicket} ya está pagado: no hay enlace que enviar.`
+          : `El ticket ${ticket.numeroTicket} no tiene un enlace de pago pendiente.`,
+      );
+    }
+
+    await this.mailService.enviarEnlacePago({
+      correo,
+      nombre: ticket.nombre,
+      numeroTicket: ticket.numeroTicket,
+      montoTotal: `Q${Number(ticket.montoTotal).toFixed(2)}`,
+      atraccion: ticket.atraccion?.nombre ?? null,
+      checkoutUrl: pendiente.checkoutUrl,
+    });
+
+    // Queda en bitácora a quién se le mandó: el enlace permite pagar, y saber a
+    // qué dirección salió es parte de poder auditar un cobro.
+    await BitacoraService.registrarEnTransaccion(this.prisma, {
+      idUsuario: ejecutor?.id,
+      usuarioNombre: await this.obtenerNombreEjecutor(this.prisma, ejecutor),
+      accion: 'ENVIAR_ENLACE_PAGO',
+      modulo: 'Tickets',
+      descripcion: `Se envió el enlace de pago del ticket ${ticket.numeroTicket} a ${correo}.`,
+    });
+
+    return {
+      mensaje: `Enlace de pago enviado a ${correo}.`,
+      numeroTicket: ticket.numeroTicket,
+      correo,
+    };
   }
 
   async anular(id: number, ejecutor?: EjecutorInfo) {

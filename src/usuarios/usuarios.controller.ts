@@ -14,6 +14,7 @@ import { UsuariosService } from './usuarios.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { AssignPermisosDto } from './dto/assign-permisos.dto';
+import { QueryUsuarioDto } from './dto/query-usuario.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 
 @Controller('usuarios')
@@ -36,8 +37,8 @@ export class UsuariosController {
 
   @Get()
   @RequirePermission('Usuarios', 'Ver')
-  findAll(@Query('incluirAnulados') incluirAnulados?: string) {
-    return this.usuariosService.findAll(incluirAnulados === 'true');
+  findAll(@Query() query: QueryUsuarioDto) {
+    return this.usuariosService.findAll(query);
   }
 
   @Get(':id')

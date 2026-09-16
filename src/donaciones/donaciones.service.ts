@@ -5,6 +5,10 @@ import { BitacoraService } from '../bitacora/bitacora.service';
 import { CajasService } from '../cajas/cajas.service';
 import { EjecutorInfo } from '../common/utils/ejecutor.util';
 import { getFechaUTC6 } from '../common/utils/date.util';
+import {
+  construirRespuestaPaginada,
+  resolverPaginacion,
+} from '../common/utils/paginacion.util';
 import { generarCorrelativo } from '../common/utils/correlativo.util';
 import { CrearDonacionDto } from './dto/crear-donacion.dto';
 import { QueryDonacionDto } from './dto/query-donacion.dto';
@@ -107,8 +111,7 @@ export class DonacionesService {
   async findAll(query: QueryDonacionDto) {
     const { buscar, idUsuario, idAperturaCaja, fechaInicio, fechaFin, incluirAnulados } =
       query || {};
-    const pagina = query?.pagina && query.pagina > 0 ? query.pagina : 1;
-    const limite = query?.limite && query.limite > 0 ? query.limite : 50;
+    const paginacion = resolverPaginacion(query);
 
     const where: any = {};
 
@@ -152,9 +155,12 @@ export class DonacionesService {
         where,
         include: INCLUDE_DETALLE,
         // El folio es texto: su orden alfabético no es el cronológico.
-        orderBy: { fechaCreacion: 'desc' },
-        skip: (pagina - 1) * limite,
-        take: limite,
+        // El desempate por `id` no es decorativo: SQL Server resuelve `skip`/`take`
+        // con OFFSET..FETCH, y sobre una clave de orden que se repite no garantiza
+        // un orden estable entre páginas: una fila puede salir dos veces o ninguna.
+        orderBy: [{ fechaCreacion: 'desc' }, { id: 'desc' }],
+        skip: paginacion.skip,
+        take: paginacion.take,
       }),
       this.prisma.donacion.count({ where }),
       this.prisma.donacion.aggregate({
@@ -172,10 +178,7 @@ export class DonacionesService {
     ]);
 
     return {
-      datos,
-      total,
-      pagina,
-      limite,
+      ...construirRespuestaPaginada(datos, total, paginacion),
       metricas: {
         // Cuántos trae el listado con el filtro aplicado; cuadra con la paginación.
         totalRecibos: total,

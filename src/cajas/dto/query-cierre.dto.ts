@@ -1,7 +1,8 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString } from 'class-validator';
+import { PaginacionQueryDto } from '../../common/dto/paginacion.dto';
 
-export class QueryCierreDto {
+export class QueryCierreDto extends PaginacionQueryDto() {
   /** Filtra por el usuario que abrió la caja. */
   @IsOptional()
   @Type(() => Number)
@@ -24,17 +25,4 @@ export class QueryCierreDto {
   @IsOptional()
   @IsString()
   incluirAnulados?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1, { message: 'La página debe ser mayor o igual a 1.' })
-  pagina?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1, { message: 'El límite debe ser mayor o igual a 1.' })
-  @Max(200, { message: 'El límite no puede exceder 200 registros por página.' })
-  limite?: number;
 }

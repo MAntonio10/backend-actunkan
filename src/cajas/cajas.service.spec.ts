@@ -61,7 +61,19 @@ describe('CajasService', () => {
     tx = crearTxMock();
     prisma = {
       $transaction: jest.fn((cb: any) => cb(tx)),
-      aperturaCaja: { findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
+      aperturaCaja: {
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      cierreCaja: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        aggregate: jest
+          .fn()
+          .mockResolvedValue({ _sum: { montoFinal: 0, montoEsperado: 0, diferencia: 0 } }),
+      },
       ticketPago: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
       donacion: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
       ticket: {
@@ -645,6 +657,88 @@ describe('CajasService', () => {
       });
 
       await expect(service.anularApertura(1, EJECUTOR)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('findAll (listado de aperturas)', () => {
+    const cajaConCierre = (extra: any = {}) => ({
+      id: 1,
+      anulado: false,
+      fechaCreacion: new Date(),
+      cierresCaja: [{ id: 9, montoFinal: 500, montoEsperado: 585, diferencia: -85 }],
+      ...extra,
+    });
+
+    const argsFindMany = () => prisma.aperturaCaja.findMany.mock.calls[0][0];
+
+    beforeEach(() => {
+      prisma.aperturaCaja.findMany.mockResolvedValue([cajaConCierre()]);
+      prisma.aperturaCaja.count.mockResolvedValue(43);
+    });
+
+    it('devuelve el sobre paginado, no un arreglo plano', async () => {
+      const res: any = await service.findAll({} as any, 1);
+
+      expect(Object.keys(res)).toEqual(['datos', 'total', 'pagina', 'limite']);
+      expect(res.total).toBe(43);
+    });
+
+    it('traduce página y límite a skip/take', async () => {
+      await service.findAll({ pagina: 3, limite: 15 } as any, 1);
+
+      expect(argsFindMany()).toMatchObject({ skip: 30, take: 15 });
+    });
+
+    it('el total se cuenta con el mismo filtro que las filas devueltas', async () => {
+      await service.findAll({ incluirAnulados: 'true', estado: 'Abierta' } as any, 1);
+
+      expect(prisma.aperturaCaja.count.mock.calls[0][0].where).toEqual(argsFindMany().where);
+    });
+
+    it('ordena por fecha con desempate por id', async () => {
+      await service.findAll({} as any, 1);
+
+      expect(argsFindMany().orderBy).toEqual([{ fechaCreacion: 'desc' }, { id: 'desc' }]);
+    });
+
+    it('el supervisor ve el arqueo completo', async () => {
+      const res: any = await service.findAll({} as any, 1);
+
+      expect(res.datos[0].cierresCaja[0]).toHaveProperty('montoEsperado');
+    });
+
+    // Ocultar el arqueo quita campos, nunca filas: si alguien lo convirtiera en un
+    // filtro, `total` dejaría de cuadrar con lo que se muestra en pantalla.
+    it('sin permiso Cajas.Editar oculta el arqueo pero no descarta filas', async () => {
+      prisma.permisos.findFirst.mockResolvedValue(null);
+
+      const res: any = await service.findAll({} as any, 2);
+
+      expect(res.datos).toHaveLength(1);
+      expect(res.total).toBe(43);
+      expect(res.datos[0].cierresCaja[0]).not.toHaveProperty('montoEsperado');
+      expect(res.datos[0].cierresCaja[0]).not.toHaveProperty('diferencia');
+      expect(res.datos[0].cierresCaja[0]).toHaveProperty('montoFinal');
+    });
+  });
+
+  describe('historialCierres', () => {
+    it('reparte de 20 en 20 y cierra el orden con un desempate por id', async () => {
+      const res: any = await service.historialCierres({} as any);
+
+      expect(res.limite).toBe(20);
+      expect(prisma.cierreCaja.findMany.mock.calls[0][0].orderBy).toEqual([
+        { fechaCierre: 'desc' },
+        { id: 'desc' },
+      ]);
+    });
+
+    it('el total se cuenta con el mismo filtro que las filas devueltas', async () => {
+      await service.historialCierres({ soloAnulados: 'true' } as any);
+
+      expect(prisma.cierreCaja.count.mock.calls[0][0].where).toEqual(
+        prisma.cierreCaja.findMany.mock.calls[0][0].where,
+      );
     });
   });
 });

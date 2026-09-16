@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { GuiasService } from './guias.service';
 import { UpdateGuiaDto } from './dto/update-guia.dto';
+import { QueryGuiaDto } from './dto/query-guia.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { obtenerEjecutor } from '../common/utils/ejecutor.util';
 
@@ -25,11 +26,8 @@ export class GuiasController {
 
   @Get()
   @RequirePermission('EmisionTickets', 'Ver')
-  findAll(
-    @Query('buscar') buscar?: string,
-    @Query('incluirAnulados') incluirAnulados?: string,
-  ) {
-    return this.guiasService.findAll(buscar, incluirAnulados === 'true');
+  findAll(@Query() query: QueryGuiaDto) {
+    return this.guiasService.findAll(query);
   }
 
   @Get(':id')

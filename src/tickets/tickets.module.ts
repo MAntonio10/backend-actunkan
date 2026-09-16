@@ -8,9 +8,10 @@ import { GuiasModule } from '../guias/guias.module';
 import { PagosModule } from '../pagos/pagos.module';
 import { CajasModule } from '../cajas/cajas.module';
 import { BitacoraModule } from '../bitacora/bitacora.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
-  imports: [CajasModule, BitacoraModule, GuiasModule, PagosModule],
+  imports: [CajasModule, BitacoraModule, GuiasModule, PagosModule, MailModule],
   // OfflineController va primero para que `/tickets/lotes-offline/...` se resuelva
   // antes de que Nest evalúe las rutas con parámetro de TicketsController.
   controllers: [OfflineController, TicketsController],

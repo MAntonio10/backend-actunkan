@@ -1,7 +1,9 @@
 import { IsOptional, IsString, IsInt } from 'class-validator';
 import { Type } from 'class-transformer';
+import { PaginacionQueryDto } from '../../common/dto/paginacion.dto';
+import { PAGINACION_BITACORA } from '../../common/utils/paginacion.util';
 
-export class QueryBitacoraDto {
+export class QueryBitacoraDto extends PaginacionQueryDto(PAGINACION_BITACORA) {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -22,9 +24,4 @@ export class QueryBitacoraDto {
   @IsOptional()
   @IsString()
   fechaFin?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  limite?: number;
 }
