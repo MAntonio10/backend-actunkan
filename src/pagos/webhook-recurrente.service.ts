@@ -52,9 +52,6 @@ const RANGO_ESTADO: Record<string, number> = {
 /** Estados del envelope que significan que el cobro se hizo. */
 const ESTADOS_COBRADO = new Set(['succeeded', 'paid']);
 
-/** Estados del envelope que significan que el cobro no va a ocurrir. */
-const ESTADOS_FALLIDO = new Set(['failed', 'canceled', 'cancelled']);
-
 /**
  * Si los eventos de fallo mueven el pago a `CANCELADO`.
  *
@@ -161,7 +158,7 @@ export class WebhookRecurrenteService {
       return { resultado };
     };
 
-    const destino = this.estadoDestino(tipoEvento, evento?.status);
+    const destino = this.estadoDestino(tipoEvento, this.extraerEstado(evento));
 
     if (destino === 'INCONSISTENTE') {
       this.logger.warn(
@@ -288,17 +285,24 @@ export class WebhookRecurrenteService {
   ): string | 'SIN_EFECTO' | 'INCONSISTENTE' | null {
     const estado = String(status ?? '').toLowerCase();
 
-    if (tipoEvento === 'intent.succeeded' || tipoEvento === 'intent.paid') {
+    // Recurrente envía `payment_intent.succeeded`; el resto del código se escribió con
+    // la forma corta `intent.*`, así que se aceptan las dos.
+    const tipo = tipoEvento.replace(/^payment_intent\./, 'intent.');
+
+    if (tipo === 'intent.succeeded' || tipo === 'intent.paid') {
       return ESTADOS_COBRADO.has(estado) ? ESTADO_PAGO_PAGADO : 'INCONSISTENTE';
     }
 
-    if (tipoEvento === 'intent.failed' || tipoEvento === 'intent.canceled') {
-      if (!ESTADOS_FALLIDO.has(estado)) return 'INCONSISTENTE';
+    if (tipo === 'intent.failed' || tipo === 'intent.canceled') {
+      // El checkout de un intento fallido no queda en un estado de fallo propio (sigue
+      // abierto para reintentar), así que no se exige uno. Lo que sí se rechaza es la
+      // contradicción: un fallo sobre un checkout que dice estar pagado.
+      if (ESTADOS_COBRADO.has(estado)) return 'INCONSISTENTE';
       return ESCRIBIR_CANCELADO ? ESTADO_PAGO_CANCELADO : 'SIN_EFECTO';
     }
 
     // La fila nace `PENDIENTE` en la emisión, así que este evento no aporta nada.
-    if (tipoEvento === 'intent.pending') return 'SIN_EFECTO';
+    if (tipo === 'intent.pending') return 'SIN_EFECTO';
 
     return null;
   }
@@ -354,6 +358,14 @@ export class WebhookRecurrenteService {
     const recibo = evento?.receipt_number;
     if (recibo === undefined || recibo === null) return {};
     return { numeroComprobante: String(recibo).slice(0, 100) };
+  }
+
+  /**
+   * Estado del cobro. En los avisos reales de Recurrente no hay `status` en la raíz:
+   * viene en `checkout.status` (`"paid"`).
+   */
+  private extraerEstado(evento: Record<string, any>): unknown {
+    return evento?.status ?? evento?.checkout?.status;
   }
 
   /** `checkout.id` del cuerpo, que es lo que empareja con `idPagoPasarela`. */

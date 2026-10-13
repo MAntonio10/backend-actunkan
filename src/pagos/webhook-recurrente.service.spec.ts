@@ -130,6 +130,53 @@ describe('WebhookRecurrenteService', () => {
       });
     });
 
+    /**
+     * Forma real del aviso (recortada de uno recibido en producción): el tipo lleva
+     * el prefijo `payment_intent.` y no hay `status` en la raíz, solo en `checkout`.
+     */
+    it('confirma el aviso real de Recurrente (payment_intent.succeeded)', async () => {
+      const { prisma, tx } = crearPrisma({
+        pago: { ...PAGO_PENDIENTE, monto: new Prisma.Decimal('5.0000') },
+      });
+      const servicio = await crearServicio(prisma);
+
+      const res = await servicio.procesar(
+        'msg_1',
+        {
+          amount_in_cents: 500,
+          currency: 'GTQ',
+          event_type: 'payment_intent.succeeded',
+          failure_reason: null,
+          receipt_number: '7479-0404',
+          checkout: { id: 'ch_gcnzjzlmrjoiawi8', status: 'paid', currency: 'GTQ' },
+        },
+        '{}',
+      );
+
+      expect(res.resultado).toBe('APLICADO');
+      const escritura = tx.ticketPago.updateMany.mock.calls[0][0].data;
+      expect(escritura.estadoPago).toBe('PAGADO');
+      expect(escritura.numeroComprobante).toBe('7479-0404');
+    });
+
+    it('no confirma un payment_intent.succeeded cuyo checkout no está pagado', async () => {
+      const { prisma, tx } = crearPrisma({ pago: PAGO_PENDIENTE });
+      const servicio = await crearServicio(prisma);
+
+      const res = await servicio.procesar(
+        'msg_1',
+        evento({
+          event_type: 'payment_intent.succeeded',
+          status: undefined,
+          checkout: { id: 'ch_abc123', status: 'unpaid' },
+        }),
+        '{}',
+      );
+
+      expect(res.resultado).toBe('IGNORADO_INCONSISTENTE');
+      expect(tx.ticketPago.updateMany).not.toHaveBeenCalled();
+    });
+
     it('acepta intent.paid igual que intent.succeeded', async () => {
       const { prisma, tx } = crearPrisma({ pago: PAGO_PENDIENTE });
       const servicio = await crearServicio(prisma);
@@ -274,6 +321,45 @@ describe('WebhookRecurrenteService', () => {
       expect(tx.bitacora.create.mock.calls[0][0].data.accion).toBe(
         'PAGO_CANCELADO',
       );
+    });
+
+    it('un payment_intent.failed sobre un pago pendiente lo cancela', async () => {
+      const { prisma, tx } = crearPrisma({ pago: PAGO_PENDIENTE });
+      const servicio = await crearServicio(prisma);
+
+      const res = await servicio.procesar(
+        'msg_1',
+        evento({
+          event_type: 'payment_intent.failed',
+          status: undefined,
+          failure_reason: 'Fondos insuficientes',
+          checkout: { id: 'ch_abc123', status: 'unpaid' },
+        }),
+        '{}',
+      );
+
+      expect(res.resultado).toBe('APLICADO');
+      expect(tx.ticketPago.updateMany.mock.calls[0][0].data.estadoPago).toBe(
+        'CANCELADO',
+      );
+    });
+
+    it('no cancela con un fallo cuyo checkout dice estar pagado', async () => {
+      const { prisma, tx } = crearPrisma({ pago: PAGO_PENDIENTE });
+      const servicio = await crearServicio(prisma);
+
+      const res = await servicio.procesar(
+        'msg_1',
+        evento({
+          event_type: 'payment_intent.failed',
+          status: undefined,
+          checkout: { id: 'ch_abc123', status: 'paid' },
+        }),
+        '{}',
+      );
+
+      expect(res.resultado).toBe('IGNORADO_INCONSISTENTE');
+      expect(tx.ticketPago.updateMany).not.toHaveBeenCalled();
     });
 
     /** Un segundo intento exitoso sobre el mismo checkout es dinero que entró. */
