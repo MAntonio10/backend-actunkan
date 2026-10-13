@@ -42,13 +42,13 @@ export class TicketsController {
   }
 
   @Post('emitir')
-  @RequirePermission('EmisionTickets','Crear')
+  @RequirePermission('EmisionTickets', 'Crear')
   emitir(@Body() dto: EmitirTicketDto, @Request() req: any) {
     return this.ticketsService.emitir(dto, obtenerEjecutor(req));
   }
 
   @Get()
-  @RequirePermission('EmisionTickets','Ver')
+  @RequirePermission('EmisionTickets', 'Ver')
   findAll(@Query() query: QueryTicketDto) {
     return this.ticketsService.findAll(query);
   }
@@ -56,13 +56,13 @@ export class TicketsController {
   /** Valida y sella un ticket existente: no crea nada, por eso responde 200 y no 201. */
   @Post('validar')
   @HttpCode(HttpStatus.OK)
-  @RequirePermission('EmisionTickets','Editar')
+  @RequirePermission('EmisionTickets', 'Editar')
   validar(@Body() dto: ValidarTicketDto, @Request() req: any) {
     return this.ticketsService.validar(dto, obtenerEjecutor(req));
   }
 
   @Get(':id')
-  @RequirePermission('EmisionTickets','Ver')
+  @RequirePermission('EmisionTickets', 'Ver')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.ticketsService.findOne(id);
   }
@@ -102,11 +102,15 @@ export class TicketsController {
     @Body() dto: EnviarEnlacePagoDto,
     @Request() req: any,
   ) {
-    return this.ticketsService.enviarEnlacePago(id, dto.correo, obtenerEjecutor(req));
+    return this.ticketsService.enviarEnlacePago(
+      id,
+      dto.correo,
+      obtenerEjecutor(req),
+    );
   }
 
   @Delete(':id')
-  @RequirePermission('EmisionTickets','Anular')
+  @RequirePermission('EmisionTickets', 'Anular')
   anular(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
     return this.ticketsService.anular(id, obtenerEjecutor(req));
   }

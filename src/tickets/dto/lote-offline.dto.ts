@@ -23,15 +23,23 @@ export class CrearLoteOfflineDto {
 
   /** UUID persistente que genera el navegador del dispositivo de taquilla. */
   @IsNotEmpty({ message: 'El identificador del dispositivo es obligatorio.' })
-  @IsString({ message: 'El identificador del dispositivo debe ser una cadena de texto.' })
-  @MaxLength(64, { message: 'El identificador del dispositivo no puede exceder 64 caracteres.' })
+  @IsString({
+    message: 'El identificador del dispositivo debe ser una cadena de texto.',
+  })
+  @MaxLength(64, {
+    message: 'El identificador del dispositivo no puede exceder 64 caracteres.',
+  })
   idDispositivo: string;
 }
 
 export class QueryLoteActivoDto {
   @IsNotEmpty({ message: 'El identificador del dispositivo es obligatorio.' })
-  @IsString({ message: 'El identificador del dispositivo debe ser una cadena de texto.' })
-  @MaxLength(64, { message: 'El identificador del dispositivo no puede exceder 64 caracteres.' })
+  @IsString({
+    message: 'El identificador del dispositivo debe ser una cadena de texto.',
+  })
+  @MaxLength(64, {
+    message: 'El identificador del dispositivo no puede exceder 64 caracteres.',
+  })
   idDispositivo: string;
 }
 
@@ -48,7 +56,9 @@ export class ConciliarLoteDto {
   foliosUtilizados?: string[];
 
   @IsOptional()
-  @IsArray({ message: 'Los folios no utilizados deben enviarse como un arreglo.' })
+  @IsArray({
+    message: 'Los folios no utilizados deben enviarse como un arreglo.',
+  })
   @ArrayMaxSize(200, { message: 'No se pueden declarar más de 200 folios.' })
   @IsString({ each: true, message: 'Cada folio debe ser una cadena de texto.' })
   foliosNoUtilizados?: string[];

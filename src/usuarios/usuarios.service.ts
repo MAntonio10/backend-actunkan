@@ -154,7 +154,9 @@ export class UsuariosService {
     });
 
     if (!usuario) {
-      throw new NotFoundException(`No se encontró ningún usuario solicitado con el ID ${id}.`);
+      throw new NotFoundException(
+        `No se encontró ningún usuario solicitado con el ID ${id}.`,
+      );
     }
 
     const { contrasena, ...usuarioSinContrasena } = usuario;
@@ -201,7 +203,9 @@ export class UsuariosService {
       });
 
       if (!usuarioExistente) {
-        throw new NotFoundException(`No se encontró el usuario con ID ${id} para actualizar.`);
+        throw new NotFoundException(
+          `No se encontró el usuario con ID ${id} para actualizar.`,
+        );
       }
 
       if (dto.correo && dto.correo !== usuarioExistente.correo) {
@@ -285,7 +289,9 @@ export class UsuariosService {
       });
 
       if (!usuarioExistente) {
-        throw new NotFoundException(`No se encontró ningún usuario solicitado con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró ningún usuario solicitado con el ID ${id}.`,
+        );
       }
 
       const usuarioAnulado = await tx.usuario.update({
@@ -323,7 +329,9 @@ export class UsuariosService {
       });
 
       if (!usuarioExistente) {
-        throw new NotFoundException(`No se encontró ningún usuario solicitado con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró ningún usuario solicitado con el ID ${id}.`,
+        );
       }
 
       if (!usuarioExistente.anulado) {
@@ -368,7 +376,11 @@ export class UsuariosService {
     });
   }
 
-  async assignPermisos(idUsuario: number, dto: AssignPermisosDto, ejecutor?: UsuarioEjecutor) {
+  async assignPermisos(
+    idUsuario: number,
+    dto: AssignPermisosDto,
+    ejecutor?: UsuarioEjecutor,
+  ) {
     if (ejecutor?.id && idUsuario === ejecutor.id) {
       throw new BadRequestException(
         'No puede modificar ni revocarse sus propios permisos de usuario.',
@@ -381,7 +393,9 @@ export class UsuariosService {
       });
 
       if (!usuario) {
-        throw new NotFoundException(`No se encontró ningún usuario solicitado con el ID ${idUsuario}.`);
+        throw new NotFoundException(
+          `No se encontró ningún usuario solicitado con el ID ${idUsuario}.`,
+        );
       }
 
       const moduloAcciones = await tx.moduloAccion.findMany({

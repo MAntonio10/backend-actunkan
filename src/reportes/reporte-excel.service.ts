@@ -31,11 +31,40 @@ const ALINEACION_EXCEL: Record<string, 'left' | 'center' | 'right'> = {
   derecha: 'right',
 };
 
+/**
+ * Misma paleta que el PDF (`reporte-pdf.service.ts`): los dos formatos del mismo
+ * reporte deben parecer el mismo documento, no dos productos distintos.
+ */
+const ARGB = {
+  acento: 'FF1F5A7A',
+  blanco: 'FFFFFFFF',
+  cebra: 'FFF4F4F1',
+  linea: 'FFC9C9C4',
+  texto: 'FF1C1C1A',
+  gris: 'FF7A7A75',
+};
+
 const RELLENO_ENCABEZADO: ExcelJS.Fill = {
   type: 'pattern',
   pattern: 'solid',
-  fgColor: { argb: 'FFEDEDE8' },
+  fgColor: { argb: ARGB.acento },
 };
+
+const RELLENO_CEBRA: ExcelJS.Fill = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: ARGB.cebra },
+};
+
+const BORDE_CELDA: Partial<ExcelJS.Borders> = {
+  top: { style: 'hair', color: { argb: ARGB.linea } },
+  bottom: { style: 'hair', color: { argb: ARGB.linea } },
+  left: { style: 'hair', color: { argb: ARGB.linea } },
+  right: { style: 'hair', color: { argb: ARGB.linea } },
+};
+
+/** A partir de este ancho, el texto se envuelve en vez de desbordarse. */
+const ANCHO_PARA_ENVOLVER = 40;
 
 const ANCHO_MAXIMO_COLUMNA = 60;
 const ANCHO_MINIMO_COLUMNA = 10;
@@ -103,7 +132,11 @@ export class ReporteExcelService {
     return String(valor);
   }
 
-  private aplicarFormato(celda: ExcelJS.Cell, columna: ColumnaReporte) {
+  private aplicarFormato(
+    celda: ExcelJS.Cell,
+    columna: ColumnaReporte,
+    envolver = false,
+  ) {
     const formato = FORMATO_NUMERO[columna.formato];
     if (formato) {
       celda.numFmt =
@@ -113,7 +146,8 @@ export class ReporteExcelService {
     }
     celda.alignment = {
       horizontal: ALINEACION_EXCEL[alineacionDe(columna)],
-      vertical: 'middle',
+      vertical: envolver ? 'top' : 'middle',
+      wrapText: envolver,
     };
   }
 
@@ -183,6 +217,69 @@ export class ReporteExcelService {
     return fila;
   }
 
+  /**
+   * Indicadores y notas en la propia hoja de datos, no solo en la portada.
+   *
+   * El PDF muestra encabezado, indicadores y tabla en la misma vista; el Excel los
+   * tenía repartidos, y quien abría el archivo caía en la portada y se llevaba la
+   * impresión de que el reporte traía menos información que su PDF. Cada hoja se
+   * lee ahora sola, que además es lo que hace falta al copiarla a otro libro.
+   *
+   * Van en una sola línea combinada en vez de una columna de etiquetas: los anchos
+   * de esta hoja los manda la tabla, y un bloque en dos columnas se vería recortado
+   * o desalineado según el reporte.
+   */
+  private escribirIndicadores(
+    hoja: ExcelJS.Worksheet,
+    reporte: ResultadoReporte,
+    fila: number,
+    ancho: number,
+  ): number {
+    if (reporte.kpis.length === 0) return fila;
+
+    const texto = reporte.kpis
+      .map((kpi) =>
+        kpi.detalle
+          ? `${kpi.etiqueta}: ${kpi.valor} (${kpi.detalle})`
+          : `${kpi.etiqueta}: ${kpi.valor}`,
+      )
+      .join('   ·   ');
+
+    const celda = hoja.getCell(fila, 1);
+    celda.value = texto;
+    celda.font = { bold: true, size: 10, color: { argb: ARGB.acento } };
+    celda.alignment = { vertical: 'middle', wrapText: true };
+    if (ancho > 1) hoja.mergeCells(fila, 1, fila, ancho);
+
+    return fila + 2;
+  }
+
+  private escribirNotas(
+    hoja: ExcelJS.Worksheet,
+    reporte: ResultadoReporte,
+    fila: number,
+    ancho: number,
+  ): number {
+    if (!reporte.notas?.length) return fila;
+
+    let actual = fila + 1;
+    const titulo = hoja.getCell(actual, 1);
+    titulo.value = 'Notas';
+    titulo.font = { bold: true, size: 10 };
+    actual += 1;
+
+    for (const nota of reporte.notas) {
+      const celda = hoja.getCell(actual, 1);
+      celda.value = nota;
+      celda.font = { size: 9, color: { argb: ARGB.gris } };
+      celda.alignment = { wrapText: true, vertical: 'top' };
+      if (ancho > 1) hoja.mergeCells(actual, 1, actual, ancho);
+      actual += 1;
+    }
+
+    return actual;
+  }
+
   private escribirTabla(
     hoja: ExcelJS.Worksheet,
     seccion: SeccionReporte,
@@ -190,27 +287,43 @@ export class ReporteExcelService {
   ) {
     const filaEncabezado = filaInicial;
 
+    // Se calculan antes del volcado: el mismo dato decide el ancho de la columna y
+    // si su contenido se envuelve, y hacerlo dos veces sobre 40 000 filas se nota.
+    const anchos = seccion.columnas.map((columna) =>
+      this.anchoDeColumna(columna, seccion),
+    );
+    const envuelve = anchos.map((ancho) => ancho >= ANCHO_PARA_ENVOLVER);
+
     seccion.columnas.forEach((columna, indice) => {
       const celda = hoja.getCell(filaEncabezado, indice + 1);
       celda.value = columna.titulo;
-      celda.font = { bold: true, size: 10 };
+      celda.font = { bold: true, size: 10, color: { argb: ARGB.blanco } };
       celda.fill = RELLENO_ENCABEZADO;
-      celda.border = { bottom: { style: 'thin', color: { argb: 'FFC9C9C4' } } };
+      celda.border = BORDE_CELDA;
       celda.alignment = {
         horizontal: ALINEACION_EXCEL[alineacionDe(columna)],
         vertical: 'middle',
+        wrapText: true,
       };
-      hoja.getColumn(indice + 1).width = this.anchoDeColumna(columna, seccion);
+      hoja.getColumn(indice + 1).width = anchos[indice];
     });
+    hoja.getRow(filaEncabezado).height = 22;
 
     seccion.filas.forEach((fila, indiceFila) => {
+      const alterna = indiceFila % 2 === 1;
+
       seccion.columnas.forEach((columna, indiceColumna) => {
         const celda = hoja.getCell(
           filaEncabezado + 1 + indiceFila,
           indiceColumna + 1,
         );
         celda.value = this.valorDeCelda(fila[columna.clave] ?? null, columna);
-        this.aplicarFormato(celda, columna);
+        this.aplicarFormato(celda, columna, envuelve[indiceColumna]);
+        celda.border = BORDE_CELDA;
+        // La cebra es lo que hace legible una descripción larga de bitácora: sin
+        // ella, al pasar de una fila a otra se pierde de vista a qué fecha
+        // corresponde lo que se está leyendo.
+        if (alterna) celda.fill = RELLENO_CEBRA;
       });
     });
 
@@ -325,7 +438,15 @@ export class ReporteExcelService {
     libro.created = new Date(reporte.generadoEn);
 
     const usados = new Set<string>();
-    this.escribirResumen(libro, reporte, usados);
+
+    // La portada solo tiene sentido cuando hay varias secciones: con una sola, su
+    // contenido ya está entero en la hoja de datos y lo único que lograba era que
+    // el archivo abriera en una pestaña sin la tabla.
+    if (reporte.secciones.length > 1) {
+      this.escribirResumen(libro, reporte, usados);
+    }
+
+    const primeraHojaDeDatos = libro.worksheets.length;
 
     reporte.secciones.forEach((seccion, indice) => {
       const hoja = libro.addWorksheet(
@@ -335,13 +456,29 @@ export class ReporteExcelService {
           `Datos ${indice + 1}`,
         ),
       );
-      const filaInicial = this.escribirEncabezado(
-        hoja,
-        reporte,
-        seccion.titulo,
-      );
-      this.escribirTabla(hoja, seccion, filaInicial);
+      const ancho = seccion.columnas.length;
+
+      let fila = this.escribirEncabezado(hoja, reporte, seccion.titulo);
+      fila = this.escribirIndicadores(hoja, reporte, fila, ancho);
+      fila = this.escribirTabla(hoja, seccion, fila);
+      this.escribirNotas(hoja, reporte, fila, ancho);
     });
+
+    // Sin esto el libro abre en la primera pestaña, que con varias secciones es la
+    // portada: el usuario ve indicadores y cree que el reporte no trae los datos.
+    if (libro.worksheets.length > primeraHojaDeDatos) {
+      libro.views = [
+        {
+          firstSheet: 0,
+          activeTab: primeraHojaDeDatos,
+          visibility: 'visible',
+          x: 0,
+          y: 0,
+          width: 20000,
+          height: 20000,
+        },
+      ];
+    }
 
     // `writeBuffer` devuelve un ArrayBuffer; el controlador necesita un Buffer de Node
     // para poder informar el Content-Length.

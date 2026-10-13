@@ -26,7 +26,10 @@ describe('UsuariosService', () => {
     };
 
     const modulo: TestingModule = await Test.createTestingModule({
-      providers: [UsuariosService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        UsuariosService,
+        { provide: PrismaService, useValue: prisma },
+      ],
     }).compile();
 
     service = modulo.get<UsuariosService>(UsuariosService);
@@ -64,7 +67,9 @@ describe('UsuariosService', () => {
     it('el total se cuenta con el mismo filtro que las filas devueltas', async () => {
       await service.findAll({ incluirAnulados: 'true' });
 
-      expect(prisma.usuario.count.mock.calls[0][0].where).toEqual(argsFindMany().where);
+      expect(prisma.usuario.count.mock.calls[0][0].where).toEqual(
+        argsFindMany().where,
+      );
     });
 
     // Sin el desempate, SQL Server no garantiza un orden estable entre páginas:
@@ -72,7 +77,10 @@ describe('UsuariosService', () => {
     it('ordena por nombre con desempate por id', async () => {
       await service.findAll({});
 
-      expect(argsFindMany().orderBy).toEqual([{ nombre: 'asc' }, { id: 'asc' }]);
+      expect(argsFindMany().orderBy).toEqual([
+        { nombre: 'asc' },
+        { id: 'asc' },
+      ]);
     });
 
     it('oculta los usuarios anulados salvo que se pidan', async () => {

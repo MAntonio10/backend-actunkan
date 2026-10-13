@@ -15,7 +15,9 @@ export class EnviarEnlacePagoDto {
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
-  @IsNotEmpty({ message: 'Escriba el correo al que se enviará el enlace de pago.' })
+  @IsNotEmpty({
+    message: 'Escriba el correo al que se enviará el enlace de pago.',
+  })
   @IsEmail({}, { message: 'El correo electrónico no tiene un formato válido.' })
   @MaxLength(255, { message: 'El correo no puede exceder los 255 caracteres.' })
   correo: string;

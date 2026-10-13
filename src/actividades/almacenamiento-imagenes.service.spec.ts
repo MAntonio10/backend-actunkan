@@ -34,7 +34,9 @@ describe('AlmacenamientoImagenesService', () => {
     const nombre = service.guardar(archivo());
 
     expect(service.existe(nombre)).toBe(true);
-    expect(readFileSync(service.rutaDe(nombre)).toString()).toBe('contenido-de-prueba');
+    expect(readFileSync(service.rutaDe(nombre)).toString()).toBe(
+      'contenido-de-prueba',
+    );
   });
 
   // Usar el nombre del cliente permitiría rutas como `../../.env`.
@@ -54,21 +56,35 @@ describe('AlmacenamientoImagenesService', () => {
   });
 
   it('rechaza rutas que se salgan de la carpeta base', () => {
-    expect(() => service.rutaDe('../../../etc/passwd')).toThrow(BadRequestException);
+    expect(() => service.rutaDe('../../../etc/passwd')).toThrow(
+      BadRequestException,
+    );
   });
 
   it('rechaza formatos que no son imagen', () => {
-    expect(() => service.validar({ mimetype: 'application/pdf', size: 100 })).toThrow(
-      BadRequestException,
-    );
+    expect(() =>
+      service.validar({ mimetype: 'application/pdf', size: 100 }),
+    ).toThrow(BadRequestException);
     expect(() => service.validar({ mimetype: 'text/html', size: 100 })).toThrow(
       BadRequestException,
     );
   });
 
   it('acepta los formatos de imagen permitidos', () => {
-    for (const mime of ['image/jpeg', 'image/png', 'image/webp', 'image/gif']) {
-      expect(() => service.validar({ mimetype: mime, size: 100 })).not.toThrow();
+    for (const mime of ['image/jpeg', 'image/png']) {
+      expect(() =>
+        service.validar({ mimetype: mime, size: 100 }),
+      ).not.toThrow();
+    }
+  });
+
+  // El input del formulario ya filtra por extensión, pero eso es sugerencia para el
+  // navegador: una petición armada a mano lo ignora. El rechazo vive acá.
+  it('rechaza webp y gif, aunque sean imágenes', () => {
+    for (const mime of ['image/webp', 'image/gif']) {
+      expect(() => service.validar({ mimetype: mime, size: 100 })).toThrow(
+        BadRequestException,
+      );
     }
   });
 
@@ -79,9 +95,9 @@ describe('AlmacenamientoImagenesService', () => {
   });
 
   it('no escribe nada si el archivo no pasa la validación', () => {
-    expect(() => service.guardar(archivo({ mimetype: 'application/pdf' }))).toThrow(
-      BadRequestException,
-    );
+    expect(() =>
+      service.guardar(archivo({ mimetype: 'application/pdf' })),
+    ).toThrow(BadRequestException);
     expect(existsSync(join(service.carpetaBase))).toBe(false);
   });
 

@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { CreatePuestoDto } from './dto/create-puesto.dto';
@@ -72,17 +77,25 @@ export class PuestosService {
     });
 
     if (!puesto) {
-      throw new NotFoundException(`No se encontró el puesto solicitado con el ID ${id}.`);
+      throw new NotFoundException(
+        `No se encontró el puesto solicitado con el ID ${id}.`,
+      );
     }
 
     return puesto;
   }
 
-  async update(id: number, updatePuestoDto: UpdatePuestoDto, ejecutor?: EjecutorInfo) {
+  async update(
+    id: number,
+    updatePuestoDto: UpdatePuestoDto,
+    ejecutor?: EjecutorInfo,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const puesto = await tx.puestos.findUnique({ where: { id } });
       if (!puesto) {
-        throw new NotFoundException(`No se encontró el puesto solicitado con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró el puesto solicitado con el ID ${id}.`,
+        );
       }
 
       if (updatePuestoDto.nombre) {
@@ -127,7 +140,9 @@ export class PuestosService {
     return this.prisma.$transaction(async (tx) => {
       const puesto = await tx.puestos.findUnique({ where: { id } });
       if (!puesto) {
-        throw new NotFoundException(`No se encontró el puesto solicitado con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró el puesto solicitado con el ID ${id}.`,
+        );
       }
 
       const puestoAnulado = await tx.puestos.update({
@@ -160,11 +175,15 @@ export class PuestosService {
     return this.prisma.$transaction(async (tx) => {
       const puesto = await tx.puestos.findUnique({ where: { id } });
       if (!puesto) {
-        throw new NotFoundException(`No se encontró el puesto solicitado con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró el puesto solicitado con el ID ${id}.`,
+        );
       }
 
       if (!puesto.anulado) {
-        throw new BadRequestException(`El puesto '${puesto.nombre}' ya se encuentra activo.`);
+        throw new BadRequestException(
+          `El puesto '${puesto.nombre}' ya se encuentra activo.`,
+        );
       }
 
       const puestoActivado = await tx.puestos.update({

@@ -64,8 +64,9 @@ export const donacionesResumen: DefinicionReporte = {
   clave: 'donaciones-resumen',
   titulo: 'Resumen de donaciones',
   descripcion:
-    'Cuánto se recaudó en donaciones durante el período, con el desglose por día y por ' +
-    'el usuario que las recibió. Incluye los recibos anulados como cifra aparte.',
+    'Cuánto se recaudó en donaciones, con el desglose por día y por quien las ' +
+    'recibió.',
+  pistasIa: 'Incluye los recibos anulados como cifra aparte.',
   categoria: 'Donaciones',
   moduloOrigen: 'Donaciones',
   orientacionSugerida: 'vertical',
@@ -170,7 +171,7 @@ export const donacionesResumen: DefinicionReporte = {
       orientacion: 'vertical',
       notas: [
         'Las donaciones son siempre en efectivo y entran a la caja abierta, así que suman ' +
-          'al arqueo del turno igual que una venta.',
+          'al arqueo del turno igual que una recaudación.',
         'Los recibos anulados no cuentan en el recaudado.',
       ],
     };

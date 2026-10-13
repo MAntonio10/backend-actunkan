@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import PDFDocument from 'pdfkit';
 import * as QRCode from 'qrcode';
-import { construirPayloadQr } from '../common/utils/qr.util';
+import { construirQrDeTicket } from '../common/utils/qr.util';
 import { TIPO_TICKET_GUIA } from './tickets.service';
 
 /** Ancho de rollo de 80 mm expresado en puntos PDF (1 pt = 1/72"). */
@@ -55,7 +55,9 @@ export class TicketPdfService {
 
     if (!base) {
       // El pase se emite igual sin logos: es preferible a no poder imprimir.
-      this.logger.warn('No se encontraron los logos optimizados; el PDF saldrá sin ellos.');
+      this.logger.warn(
+        'No se encontraron los logos optimizados; el PDF saldrá sin ellos.',
+      );
       this.logosCache = {};
       return this.logosCache;
     }
@@ -84,7 +86,11 @@ export class TicketPdfService {
     y: number,
     etiqueta: string,
     valor: string,
-    opciones: { fuenteValor?: string; tamValor?: number; colorValor?: string } = {},
+    opciones: {
+      fuenteValor?: string;
+      tamValor?: number;
+      colorValor?: string;
+    } = {},
   ): number {
     const alto = 28;
     doc
@@ -143,7 +149,11 @@ export class TicketPdfService {
       .font('Helvetica')
       .fontSize(6.5)
       .fillColor(COLOR.gris)
-      .text(etiqueta.toUpperCase(), x, y, { width: ancho, align, lineBreak: false });
+      .text(etiqueta.toUpperCase(), x, y, {
+        width: ancho,
+        align,
+        lineBreak: false,
+      });
 
     doc
       .font('Helvetica-Bold')
@@ -177,7 +187,7 @@ export class TicketPdfService {
         : ACENTO.VISITANTE;
     const logos = this.cargarLogos();
 
-    const payloadQr = construirPayloadQr(ticket.numeroTicket, ticket.qrFirma);
+    const payloadQr = construirQrDeTicket(ticket);
     const qrPng = await QRCode.toBuffer(payloadQr, {
       type: 'png',
       width: 460,
@@ -188,25 +198,58 @@ export class TicketPdfService {
     // Primera pasada: medir el alto real del nombre, que es lo único variable.
     const regla = new PDFDocument({ size: [ANCHO, 1000], margin: 0 });
     regla.font('Helvetica-Bold').fontSize(13);
-    const altoNombre = regla.heightOfString(ticket.nombre, { width: CONTENIDO });
+    const altoNombre = regla.heightOfString(ticket.nombre, {
+      width: CONTENIDO,
+    });
     regla.end();
 
     const hayPais = Boolean(ticket.pais?.nombre);
     const altoInsignia = (esGuia ? 26 : 0) + (anulado ? 26 : 0);
 
     // Desglose por categoría. El pase de guía no lo lleva: es una sola persona.
-    const detalle: Array<{ texto: string; monto: string }> = (ticket.visitantePorTickets ?? [])
+    const detalle: Array<{ texto: string; monto: string }> = (
+      ticket.visitantePorTickets ?? []
+    )
       .filter((v: any) => v.cantidad > 0)
       .map((v: any) => ({
         texto: `${v.cantidad} × ${v.tipoVisitantes?.nombre ?? 'Visitante'}`,
         monto: this.moneda(v.subtotal),
       }));
-    const altoDetalle = detalle.length ? 12 + detalle.length * ALTO_LINEA_DETALLE + 10 : 0;
+    const altoDetalle = detalle.length
+      ? 12 + detalle.length * ALTO_LINEA_DETALLE + 10
+      : 0;
 
     const alto =
-      18 + ALTO_LOGO + 10 + 20 + 12 + altoInsignia + 14 + 14 + 28 + 8 + 28 + 16 + 10 +
-      altoNombre + 14 + 26 + 14 + 26 + (hayPais ? 24 : 0) + altoDetalle + 14 + 28 + 18 + 18 +
-      30 + 16 + LADO_QR + 22 + 12 + 18;
+      18 +
+      ALTO_LOGO +
+      10 +
+      20 +
+      12 +
+      altoInsignia +
+      14 +
+      14 +
+      28 +
+      8 +
+      28 +
+      16 +
+      10 +
+      altoNombre +
+      14 +
+      26 +
+      14 +
+      26 +
+      (hayPais ? 24 : 0) +
+      altoDetalle +
+      14 +
+      28 +
+      18 +
+      18 +
+      30 +
+      16 +
+      LADO_QR +
+      22 +
+      12 +
+      18;
 
     const doc = new PDFDocument({ size: [ANCHO, alto], margin: 0 });
     const trozos: Buffer[] = [];
@@ -242,7 +285,9 @@ export class TicketPdfService {
         .strokeColor(COLOR.linea)
         .lineWidth(0.8)
         .stroke();
-      doc.image(logos.actun, inicio + anchoPro + separacion, y, { height: ALTO_LOGO });
+      doc.image(logos.actun, inicio + anchoPro + separacion, y, {
+        height: ALTO_LOGO,
+      });
     }
     y += ALTO_LOGO + 10;
 
@@ -320,16 +365,24 @@ export class TicketPdfService {
     });
     y += 8;
 
-    y = this.caja(doc, y, 'Atracción', (ticket.atraccion?.nombre ?? '').toUpperCase(), {
-      tamValor: 8.5,
-    });
+    y = this.caja(
+      doc,
+      y,
+      'Atracción',
+      (ticket.atraccion?.nombre ?? '').toUpperCase(),
+      {
+        tamValor: 8.5,
+      },
+    );
     y += 16;
 
     doc
       .font('Helvetica')
       .fontSize(6.5)
       .fillColor(COLOR.gris)
-      .text(esGuia ? 'GUÍA' : 'TITULAR / GRUPO', MARGEN, y, { lineBreak: false });
+      .text(esGuia ? 'GUÍA' : 'TITULAR / GRUPO', MARGEN, y, {
+        lineBreak: false,
+      });
     y += 10;
 
     doc
@@ -340,19 +393,50 @@ export class TicketPdfService {
     y += altoNombre + 14;
 
     const mitad = CONTENIDO / 2;
-    this.etiquetaValor(doc, MARGEN, y, mitad, 'Fecha', this.fechaCorta(ticket.fechaCreacion));
-    this.etiquetaValor(doc, MARGEN + mitad, y, mitad, 'Personas', `${ticket.cantidadPersonas} Pax`, {
-      align: 'right',
-    });
+    this.etiquetaValor(
+      doc,
+      MARGEN,
+      y,
+      mitad,
+      'Fecha',
+      this.fechaCorta(ticket.fechaCreacion),
+    );
+    this.etiquetaValor(
+      doc,
+      MARGEN + mitad,
+      y,
+      mitad,
+      'Personas',
+      `${ticket.cantidadPersonas} Pax`,
+      {
+        align: 'right',
+      },
+    );
     y += 26;
 
-    this.etiquetaValor(doc, MARGEN, y, CONTENIDO, 'Origen', ticket.origen?.nombre ?? '-', {
-      color: acento,
-    });
+    this.etiquetaValor(
+      doc,
+      MARGEN,
+      y,
+      CONTENIDO,
+      'Origen',
+      ticket.origen?.nombre ?? '-',
+      {
+        color: acento,
+      },
+    );
     y += 26;
 
     if (hayPais) {
-      this.etiquetaValor(doc, MARGEN, y, CONTENIDO, 'País', ticket.pais.nombre, { tam: 10 });
+      this.etiquetaValor(
+        doc,
+        MARGEN,
+        y,
+        CONTENIDO,
+        'País',
+        ticket.pais.nombre,
+        { tam: 10 },
+      );
       y += 24;
     }
 
@@ -410,8 +494,23 @@ export class TicketPdfService {
       ticket.estadoPago === 'PENDIENTE' ||
       pagos.some(
         (p: any) =>
-          !p.anulado && (p.estadoPago === 'PENDIENTE' || p.estadoPago === 'Pago pendiente'),
+          !p.anulado &&
+          (p.estadoPago === 'PENDIENTE' || p.estadoPago === 'Pago pendiente'),
       );
+
+    /*
+     * Un cobro que se cayó: cancelado o fallido, que es lo que escribe el webhook
+     * ante un `intent.failed`. Sin esta distinción, «no pendiente» se leía como
+     * «pagado» y el pase se imprimía diciendo «Monto pagado» sobre un cobro que
+     * nunca entró.
+     */
+    const tienePagoNoConfirmado = pagos.some(
+      (p: any) =>
+        !p.anulado &&
+        p.estadoPago !== 'PAGADO' &&
+        p.estadoPago !== 'PENDIENTE' &&
+        p.estadoPago !== 'Pago pendiente',
+    );
 
     /*
      * En un ticket anulado no se puede deducir si se cobró: al anularlo se
@@ -422,9 +521,13 @@ export class TicketPdfService {
       ? 'Ticket anulado'
       : tienePagoPendiente
         ? 'Pago pendiente'
-        : 'Monto pagado';
+        : tienePagoNoConfirmado
+          ? 'Pago no confirmado'
+          : 'Monto pagado';
     y += 14;
-    y = this.caja(doc, y, etiquetaMonto, this.moneda(ticket.montoTotal), { tamValor: 11 });
+    y = this.caja(doc, y, etiquetaMonto, this.moneda(ticket.montoTotal), {
+      tamValor: 11,
+    });
     y += 18;
 
     // --- Total y QR ---
@@ -453,7 +556,8 @@ export class TicketPdfService {
     const xQr = (ANCHO - LADO_QR) / 2;
     doc
       .roundedRect(xQr - 8, y - 8, LADO_QR + 16, LADO_QR + 16, 6)
-      .lineWidth(0.9).stroke(COLOR.borde);
+      .lineWidth(0.9)
+      .stroke(COLOR.borde);
     doc.image(qrPng, xQr, y, { width: LADO_QR, height: LADO_QR });
     y += LADO_QR + 22;
 
@@ -474,7 +578,11 @@ export class TicketPdfService {
         .fontSize(26)
         .fillColor(ACENTO.ANULADO)
         .fillOpacity(0.72)
-        .text('ANULADO', 0, centroY - 16, { width: ANCHO, align: 'center', lineBreak: false });
+        .text('ANULADO', 0, centroY - 16, {
+          width: ANCHO,
+          align: 'center',
+          lineBreak: false,
+        });
       doc.fillOpacity(1);
       doc.restore();
     }
@@ -484,7 +592,9 @@ export class TicketPdfService {
       .fontSize(6.5)
       .fillColor(anulado ? ACENTO.ANULADO : COLOR.gris)
       .text(
-        anulado ? 'TICKET ANULADO · NO VÁLIDO PARA INGRESO' : 'ESCANEE PARA VALIDAR TICKET',
+        anulado
+          ? 'TICKET ANULADO · NO VÁLIDO PARA INGRESO'
+          : 'ESCANEE PARA VALIDAR TICKET',
         0,
         y,
         { width: ANCHO, align: 'center' },

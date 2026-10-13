@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe, Query, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  ParseIntPipe,
+  Query,
+  Request,
+} from '@nestjs/common';
 import { CajasService } from './cajas.service';
 import { AbrirCajaDto } from './dto/abrir-caja.dto';
 import { CerrarCajaDto } from './dto/cerrar-caja.dto';
@@ -76,8 +87,16 @@ export class CajasController {
 
   @Post(':id/cierre')
   @RequirePermission('Cajas', 'Crear')
-  cerrarCaja(@Param('id', ParseIntPipe) id: number, @Body() cerrarCajaDto: CerrarCajaDto, @Request() req: any) {
-    return this.cajasService.cerrarCaja(id, cerrarCajaDto, this.getEjecutor(req));
+  cerrarCaja(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() cerrarCajaDto: CerrarCajaDto,
+    @Request() req: any,
+  ) {
+    return this.cajasService.cerrarCaja(
+      id,
+      cerrarCajaDto,
+      this.getEjecutor(req),
+    );
   }
 
   /**

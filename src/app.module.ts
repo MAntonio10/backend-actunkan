@@ -21,6 +21,7 @@ import { PagosModule } from './pagos/pagos.module';
 import { TarifasModule } from './tarifas/tarifas.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { ReportesModule } from './reportes/reportes.module';
+import { DispositivosModule } from './dispositivos/dispositivos.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
 
@@ -64,6 +65,7 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
     TarifasModule,
     TicketsModule,
     ReportesModule,
+    DispositivosModule,
   ],
   controllers: [AppController],
   providers: [

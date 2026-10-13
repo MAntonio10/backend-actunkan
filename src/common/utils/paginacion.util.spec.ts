@@ -8,11 +8,21 @@ import {
 
 describe('resolverPaginacion', () => {
   it('sin parámetros arranca en la primera página con el límite general', () => {
-    expect(resolverPaginacion()).toEqual({ pagina: 1, limite: 20, skip: 0, take: 20 });
+    expect(resolverPaginacion()).toEqual({
+      pagina: 1,
+      limite: 20,
+      skip: 0,
+      take: 20,
+    });
   });
 
   it('un objeto de consulta vacío se comporta igual que no recibir nada', () => {
-    expect(resolverPaginacion({})).toEqual({ pagina: 1, limite: 20, skip: 0, take: 20 });
+    expect(resolverPaginacion({})).toEqual({
+      pagina: 1,
+      limite: 20,
+      skip: 0,
+      take: 20,
+    });
   });
 
   it('calcula el salto a partir de la página pedida', () => {
@@ -30,9 +40,12 @@ describe('resolverPaginacion', () => {
     expect(resolverPaginacion({ pagina }).pagina).toBe(1);
   });
 
-  it.each([0, -1, undefined, NaN])('el límite %p cae al valor por defecto', (limite) => {
-    expect(resolverPaginacion({ limite }).limite).toBe(20);
-  });
+  it.each([0, -1, undefined, NaN])(
+    'el límite %p cae al valor por defecto',
+    (limite) => {
+      expect(resolverPaginacion({ limite }).limite).toBe(20);
+    },
+  );
 
   it('recorta el límite al tope en vez de reventar la consulta', () => {
     expect(resolverPaginacion({ limite: 1000 }).limite).toBe(200);
@@ -58,7 +71,9 @@ describe('resolverPaginacion', () => {
     });
 
     it('actividades recorta a 100, no a 200', () => {
-      expect(resolverPaginacion({ limite: 1000 }, PAGINACION_ACTIVIDADES).limite).toBe(100);
+      expect(
+        resolverPaginacion({ limite: 1000 }, PAGINACION_ACTIVIDADES).limite,
+      ).toBe(100);
     });
 
     it('la bitácora reparte igual que el resto', () => {
@@ -66,7 +81,9 @@ describe('resolverPaginacion', () => {
     });
 
     it('un límite explícito gana sobre el valor por defecto del módulo', () => {
-      expect(resolverPaginacion({ limite: 5 }, PAGINACION_ACTIVIDADES).limite).toBe(5);
+      expect(
+        resolverPaginacion({ limite: 5 }, PAGINACION_ACTIVIDADES).limite,
+      ).toBe(5);
     });
   });
 });
@@ -103,6 +120,9 @@ describe('construirRespuestaPaginada', () => {
 
 describe('presets', () => {
   it('el tope general es 20 por página y 200 como máximo', () => {
-    expect(PAGINACION_POR_DEFECTO).toEqual({ limitePorDefecto: 20, limiteMaximo: 200 });
+    expect(PAGINACION_POR_DEFECTO).toEqual({
+      limitePorDefecto: 20,
+      limiteMaximo: 200,
+    });
   });
 });

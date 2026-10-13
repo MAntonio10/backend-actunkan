@@ -37,7 +37,9 @@ export class DonacionPdfService {
     const base = posibles.find((ruta) => existsSync(join(ruta, 'actun.png')));
 
     if (!base) {
-      this.logger.warn('No se encontraron los logos optimizados; el recibo saldrá sin ellos.');
+      this.logger.warn(
+        'No se encontraron los logos optimizados; el recibo saldrá sin ellos.',
+      );
       this.logosCache = {};
       return this.logosCache;
     }
@@ -63,10 +65,17 @@ export class DonacionPdfService {
     y: number,
     etiqueta: string,
     valor: string,
-    opciones: { fuenteValor?: string; tamValor?: number; colorValor?: string } = {},
+    opciones: {
+      fuenteValor?: string;
+      tamValor?: number;
+      colorValor?: string;
+    } = {},
   ): number {
     const alto = 28;
-    doc.roundedRect(MARGEN, y, CONTENIDO, alto, 5).lineWidth(0.9).stroke(COLOR.borde);
+    doc
+      .roundedRect(MARGEN, y, CONTENIDO, alto, 5)
+      .lineWidth(0.9)
+      .stroke(COLOR.borde);
 
     doc
       .font('Helvetica')
@@ -124,8 +133,30 @@ export class DonacionPdfService {
     regla.end();
 
     const alto =
-      18 + ALTO_LOGO + 10 + 20 + 12 + 14 + 14 + 28 + 8 + 28 + 16 + 10 + altoDonante + 14 +
-      26 + 14 + altoObs + 18 + 18 + 30 + 20 + 30 + (anulado ? 26 : 0) + 18;
+      18 +
+      ALTO_LOGO +
+      10 +
+      20 +
+      12 +
+      14 +
+      14 +
+      28 +
+      8 +
+      28 +
+      16 +
+      10 +
+      altoDonante +
+      14 +
+      26 +
+      14 +
+      altoObs +
+      18 +
+      18 +
+      30 +
+      20 +
+      30 +
+      (anulado ? 26 : 0) +
+      18;
 
     const doc = new PDFDocument({ size: [ANCHO, alto], margin: 0 });
     const trozos: Buffer[] = [];
@@ -135,7 +166,10 @@ export class DonacionPdfService {
     });
 
     doc.rect(0, 0, ANCHO, alto).fill('#FFFFFF');
-    doc.roundedRect(5, 5, ANCHO - 10, alto - 10, 8).lineWidth(1.6).stroke(acento);
+    doc
+      .roundedRect(5, 5, ANCHO - 10, alto - 10, 8)
+      .lineWidth(1.6)
+      .stroke(acento);
 
     let y = 18;
 
@@ -153,7 +187,9 @@ export class DonacionPdfService {
         .strokeColor(COLOR.linea)
         .lineWidth(0.8)
         .stroke();
-      doc.image(logos.actun, inicio + anchoPro + separacion, y, { height: ALTO_LOGO });
+      doc.image(logos.actun, inicio + anchoPro + separacion, y, {
+        height: ALTO_LOGO,
+      });
     }
     y += ALTO_LOGO + 10;
 
@@ -209,13 +245,19 @@ export class DonacionPdfService {
       .font('Helvetica')
       .fontSize(6.5)
       .fillColor(COLOR.gris)
-      .text('RECIBIÓ', MARGEN + mitad, y, { width: mitad, align: 'right', lineBreak: false });
+      .text('RECIBIÓ', MARGEN + mitad, y, {
+        width: mitad,
+        align: 'right',
+        lineBreak: false,
+      });
 
     doc
       .font('Helvetica-Bold')
       .fontSize(10)
       .fillColor(COLOR.texto)
-      .text(this.fechaCorta(donacion.fechaCreacion), MARGEN, y + 10, { width: mitad });
+      .text(this.fechaCorta(donacion.fechaCreacion), MARGEN, y + 10, {
+        width: mitad,
+      });
     doc
       .font('Helvetica-Bold')
       .fontSize(8)
@@ -290,10 +332,15 @@ export class DonacionPdfService {
       .font('Helvetica')
       .fontSize(6)
       .fillColor(COLOR.gris)
-      .text('Este recibo no tiene validez fiscal ni sustituye a una factura.', 0, y + 9, {
-        width: ANCHO,
-        align: 'center',
-      });
+      .text(
+        'Este recibo no tiene validez fiscal ni sustituye a una factura.',
+        0,
+        y + 9,
+        {
+          width: ANCHO,
+          align: 'center',
+        },
+      );
 
     doc.end();
     return terminado;

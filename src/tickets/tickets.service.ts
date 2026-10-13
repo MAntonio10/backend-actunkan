@@ -14,14 +14,26 @@ import {
   construirRespuestaPaginada,
   resolverPaginacion,
 } from '../common/utils/paginacion.util';
-import { getFechaUTC6 } from '../common/utils/date.util';
+import { anioDeNegocio, getFechaUTC6 } from '../common/utils/date.util';
+import { urlCancelado, urlExito } from '../common/utils/urls.util';
 import { generarCorrelativo } from '../common/utils/correlativo.util';
-import { construirPayloadQr, firmarNumeroTicket, verificarFirmaTicket } from '../common/utils/qr.util';
-import { resolverTarifaEn, resolverTarifaGuiaEn } from '../tarifas/resolver-tarifa.util';
+import {
+  construirQrDeTicket,
+  firmarNumeroTicket,
+  verificarFirmaDispositivo,
+  verificarFirmaTicket,
+} from '../common/utils/qr.util';
+import {
+  resolverTarifaEn,
+  resolverTarifaGuiaEn,
+} from '../tarifas/resolver-tarifa.util';
 import { GuiasService } from '../guias/guias.service';
 import { RecurrenteService } from '../pagos/recurrente.service';
 import { MailService } from '../mail/mail.service';
-import { ESTADO_PAGO_PAGADO, ESTADO_PAGO_PENDIENTE } from '../pagos/pagos.service';
+import {
+  ESTADO_PAGO_PAGADO,
+  ESTADO_PAGO_PENDIENTE,
+} from '../pagos/pagos.service';
 import { EmitirTicketDto } from './dto/emitir-ticket.dto';
 import { QueryTicketDto } from './dto/query-ticket.dto';
 import { ValidarTicketDto } from './dto/validar-ticket.dto';
@@ -43,6 +55,10 @@ const INCLUDE_TICKET = {
   usuario: { select: { id: true, nombre: true, correo: true } },
   visitantePorTickets: { include: { tipoVisitantes: true } },
   ticketPagos: { include: { opcionPago: true } },
+  // La taquilla emisora viaja para poder armar el QR de un pase offline con el
+  // campo `dispositivo`: sin él, el lector depende de que el servidor deduzca la
+  // serie del folio, y eso se cae en cuanto cambie el formato del folio.
+  dispositivoTaquilla: { select: { idDispositivo: true, serie: true } },
 };
 
 @Injectable()
@@ -68,16 +84,27 @@ export class TicketsService {
    * No se vende sin caja abierta: el ticket es un ingreso y debe quedar
    * asociado al arqueo del turno vigente.
    */
-  private async exigirCajaAbierta(tx: any, idAperturaCaja: number) {
+  /**
+   * El mensaje se pasa por parámetro porque las dos operaciones que usan esta
+   * comprobación necesitan decir cosas distintas.
+   *
+   * Al emitir, «abra la caja» es la instrucción correcta. Al anular no: el ticket
+   * pertenece a SU caja, y si esa ya cerró, abrir otra no cambia nada — el arqueo
+   * viejo quedó congelado. Con el mensaje de emisión, quien intentaba anular salía a
+   * abrir una caja que no le iba a servir de nada.
+   */
+  private async exigirCajaAbierta(
+    tx: any,
+    idAperturaCaja: number,
+    mensaje = 'No hay una caja abierta para emitir el ticket. Abra la caja antes de vender.',
+  ) {
     const caja = await tx.aperturaCaja.findUnique({
       where: { id: idAperturaCaja },
       include: { estado: true },
     });
 
     if (!caja || caja.anulado || caja.estado.nombre !== 'Abierta') {
-      throw new BadRequestException(
-        'No hay una caja abierta para emitir el ticket. Abra la caja antes de vender.',
-      );
+      throw new BadRequestException(mensaje);
     }
 
     return caja;
@@ -138,8 +165,11 @@ export class TicketsService {
     const checkout = await this.recurrente.crearCheckout({
       concepto,
       montoEnCentavos: centavos,
-      successUrl: process.env.RECURRENTE_SUCCESS_URL || 'http://localhost:3000/pago/exito',
-      cancelUrl: process.env.RECURRENTE_CANCEL_URL || 'http://localhost:3000/pago/cancelado',
+      // Salen de `APP_URL`: antes caían a `localhost:3000` si la variable faltaba,
+      // y en producción eso manda al visitante a su propia máquina. El cobro se
+      // hace igual y el pase no se confirma nunca.
+      successUrl: urlExito(),
+      cancelUrl: urlCancelado(),
     });
 
     return { idPagoPasarela: checkout.id, checkoutUrl: checkout.checkout_url };
@@ -150,12 +180,19 @@ export class TicketsService {
    * el efectivo se cobra en el acto; la tarjeta genera un link y queda pendiente
    * hasta que la pasarela confirme.
    */
-  private async prepararPago(opcionPago: any, monto: Prisma.Decimal, concepto: string) {
+  private async prepararPago(
+    opcionPago: any,
+    monto: Prisma.Decimal,
+    concepto: string,
+  ) {
     if (opcionPago.esEfectivo) {
       return { estadoPago: ESTADO_PAGO_PAGADO, fechaPago: getFechaUTC6() };
     }
 
-    const { idPagoPasarela, checkoutUrl } = await this.crearLinkDePago(concepto, monto);
+    const { idPagoPasarela, checkoutUrl } = await this.crearLinkDePago(
+      concepto,
+      monto,
+    );
     return { estadoPago: ESTADO_PAGO_PENDIENTE, idPagoPasarela, checkoutUrl };
   }
 
@@ -178,7 +215,9 @@ export class TicketsService {
 
     if (guiaDto.modo === 'existente') {
       if (!guiaDto.idGuia) {
-        throw new BadRequestException('Debe indicar el guía cuando el modo es "existente".');
+        throw new BadRequestException(
+          'Debe indicar el guía cuando el modo es "existente".',
+        );
       }
 
       const guia = await tx.guia.findUnique({ where: { id: guiaDto.idGuia } });
@@ -191,11 +230,15 @@ export class TicketsService {
     }
 
     if (!guiaDto.nombre) {
-      throw new BadRequestException('Debe indicar el nombre del guía cuando el modo es "nuevo".');
+      throw new BadRequestException(
+        'Debe indicar el nombre del guía cuando el modo es "nuevo".',
+      );
     }
 
     if (guiaDto.tieneCarnet === true && !guiaDto.numeroCarnet) {
-      throw new BadRequestException('Debe indicar el número de carnet cuando el guía tiene carnet.');
+      throw new BadRequestException(
+        'Debe indicar el número de carnet cuando el guía tiene carnet.',
+      );
     }
 
     if (reutilizarExistente) {
@@ -324,19 +367,38 @@ export class TicketsService {
       ticket.estadoPago === 'Pago pendiente' ||
       pagos.some(
         (p: any) =>
-          !p.anulado && (p.estadoPago === ESTADO_PAGO_PENDIENTE || p.estadoPago === 'Pago pendiente'),
+          !p.anulado &&
+          (p.estadoPago === ESTADO_PAGO_PENDIENTE ||
+            p.estadoPago === 'Pago pendiente'),
       );
+
+    /**
+     * Hay un pago vigente que no está confirmado ni está pendiente: cancelado o
+     * fallido, que es lo que ahora escribe el webhook ante un `intent.failed`.
+     *
+     * Sin esta tercera rama, «no pendiente» se leía como «pagado» y un pase cuyo
+     * cobro se cayó se anunciaba como PAGADO, tanto acá como en el PDF.
+     */
+    const tieneNoConfirmado = pagos.some(
+      (p: any) =>
+        !p.anulado &&
+        p.estadoPago !== ESTADO_PAGO_PAGADO &&
+        p.estadoPago !== ESTADO_PAGO_PENDIENTE &&
+        p.estadoPago !== 'Pago pendiente',
+    );
 
     const estadoPago = ticket.anulado
       ? 'CANCELADO'
       : tienePendiente
-      ? 'Pago pendiente'
-      : 'PAGADO';
+        ? 'Pago pendiente'
+        : tieneNoConfirmado
+          ? 'Pago no confirmado'
+          : 'PAGADO';
 
     return {
       ...ticket,
       estadoPago,
-      qr: construirPayloadQr(ticket.numeroTicket, ticket.qrFirma),
+      qr: construirQrDeTicket(ticket),
     };
   }
 
@@ -351,7 +413,11 @@ export class TicketsService {
    * @param fecha Momento de la venta, que decide qué tarifa aplica. Ahora para la
    *   emisión online; la `fechaEmision` del dispositivo para una venta offline.
    */
-  async prepararEmision(tx: any, dto: EmitirTicketDto, fecha: Date = new Date()) {
+  async prepararEmision(
+    tx: any,
+    dto: EmitirTicketDto,
+    fecha: Date = new Date(),
+  ) {
     const [atraccion, origen, tipoRecorrido, opcionPago] = await Promise.all([
       tx.atraccion.findUnique({ where: { id: dto.idAtraccion } }),
       tx.origenVisitante.findUnique({ where: { id: dto.idOrigen } }),
@@ -360,16 +426,24 @@ export class TicketsService {
     ]);
 
     if (!atraccion || atraccion.anulado) {
-      throw new BadRequestException('La atracción indicada no existe o está anulada.');
+      throw new BadRequestException(
+        'La atracción indicada no existe o está anulada.',
+      );
     }
     if (!origen || origen.anulado) {
-      throw new BadRequestException('El origen de visitante indicado no existe o está anulado.');
+      throw new BadRequestException(
+        'El origen de visitante indicado no existe o está anulado.',
+      );
     }
     if (!tipoRecorrido || tipoRecorrido.anulado) {
-      throw new BadRequestException('El tipo de recorrido indicado no existe o está anulado.');
+      throw new BadRequestException(
+        'El tipo de recorrido indicado no existe o está anulado.',
+      );
     }
     if (!opcionPago || opcionPago.anulado) {
-      throw new BadRequestException('La forma de pago indicada no existe o está anulada.');
+      throw new BadRequestException(
+        'La forma de pago indicada no existe o está anulada.',
+      );
     }
 
     const esExtranjero = origen.codigo === ORIGEN_EXTRANJERO;
@@ -383,7 +457,9 @@ export class TicketsService {
       }
       const pais = await tx.pais.findUnique({ where: { id: dto.idPais } });
       if (!pais || pais.anulado) {
-        throw new BadRequestException(`El país con ID ${dto.idPais} no existe o está anulado.`);
+        throw new BadRequestException(
+          `El país con ID ${dto.idPais} no existe o está anulado.`,
+        );
       }
       idPais = pais.id;
     }
@@ -393,7 +469,9 @@ export class TicketsService {
     const totalPersonas = cantidades.reduce((suma, c) => suma + c.cantidad, 0);
 
     if (totalPersonas < 1) {
-      throw new BadRequestException('Debe registrar al menos una persona en el ticket.');
+      throw new BadRequestException(
+        'Debe registrar al menos una persona en el ticket.',
+      );
     }
 
     const detalles: Array<{
@@ -453,7 +531,9 @@ export class TicketsService {
 
   async emitir(dto: EmitirTicketDto, ejecutor?: EjecutorInfo) {
     if (!ejecutor?.id) {
-      throw new BadRequestException('No se pudo determinar el usuario que emite el ticket.');
+      throw new BadRequestException(
+        'No se pudo determinar el usuario que emite el ticket.',
+      );
     }
 
     const cajaActual = await this.cajasService.obtenerActual();
@@ -480,7 +560,8 @@ export class TicketsService {
         } = await this.prepararEmision(tx, dto);
 
         const ahora = getFechaUTC6();
-        const anio = ahora.getFullYear();
+        // El año del folio es el de Guatemala, no el que lea el proceso.
+        const anio = anioDeNegocio();
         const guia = await this.resolverGuia(tx, dto, ahora);
 
         // Con tarjeta esto llama a la pasarela desde dentro de la transacción.
@@ -552,7 +633,9 @@ export class TicketsService {
           }
 
           const opcionPagoGuia = dto.guia?.idOpcionPagoGuia
-            ? await tx.opcionPago.findUnique({ where: { id: dto.guia.idOpcionPagoGuia } })
+            ? await tx.opcionPago.findUnique({
+                where: { id: dto.guia.idOpcionPagoGuia },
+              })
             : opcionPago;
 
           if (!opcionPagoGuia || opcionPagoGuia.anulado) {
@@ -578,7 +661,11 @@ export class TicketsService {
                 create: {
                   idOpcionPago: opcionPagoGuia.id,
                   monto: montoGuia,
-                  ...(await this.prepararPago(opcionPagoGuia, montoGuia, `Ticket de guía ${guia.nombre}`)),
+                  ...(await this.prepararPago(
+                    opcionPagoGuia,
+                    montoGuia,
+                    `Ticket de guía ${guia.nombre}`,
+                  )),
                   fechaCreacion: ahora,
                   fechaActualizacion: ahora,
                 },
@@ -609,7 +696,8 @@ export class TicketsService {
         return {
           idGrupoEmision: grupo.id,
           montoVisitantes: montoVisitantes.toString(),
-          montoGuia: tickets.length > 1 ? tickets[1].montoTotal.toString() : null,
+          montoGuia:
+            tickets.length > 1 ? tickets[1].montoTotal.toString() : null,
           montoTotalGeneral: montoTotalGeneral.toString(),
           tickets: tickets.map((t) => this.formatearTicket(t)),
         };
@@ -640,7 +728,8 @@ export class TicketsService {
     if (idAtraccion) where.idAtraccion = idAtraccion;
     if (idOrigen) where.idOrigen = idOrigen;
     if (idPais) where.idPais = idPais;
-    if (idOpcionPago) where.ticketPagos = { some: { idOpcionPago, anulado: false } };
+    if (idOpcionPago)
+      where.ticketPagos = { some: { idOpcionPago, anulado: false } };
 
     if (fechaInicio || fechaFin) {
       where.fechaCreacion = {};
@@ -709,9 +798,13 @@ export class TicketsService {
         totalTickets: total,
         ticketsVigentes: vigentes._count._all,
         totalPersonas: vigentes._sum.cantidadPersonas ?? 0,
-        montoRecaudado: (vigentes._sum.montoTotal ?? new Prisma.Decimal(0)).toString(),
+        montoRecaudado: (
+          vigentes._sum.montoTotal ?? new Prisma.Decimal(0)
+        ).toString(),
         ticketsAnulados: anulados._count._all,
-        montoAnulado: (anulados._sum.montoTotal ?? new Prisma.Decimal(0)).toString(),
+        montoAnulado: (
+          anulados._sum.montoTotal ?? new Prisma.Decimal(0)
+        ).toString(),
       },
     };
   }
@@ -741,11 +834,7 @@ export class TicketsService {
    * lo mandara el cliente, este endpoint sería un relé para enviar cualquier URL
    * a cualquier dirección con el nombre del parque en el remitente.
    */
-  async enviarEnlacePago(
-    id: number,
-    correo: string,
-    ejecutor?: EjecutorInfo,
-  ) {
+  async enviarEnlacePago(id: number, correo: string, ejecutor?: EjecutorInfo) {
     const ticket = await this.findOne(id);
 
     if (ticket.anulado) {
@@ -754,15 +843,17 @@ export class TicketsService {
       );
     }
 
-    const pagos: any[] = Array.isArray((ticket as any).ticketPagos)
-      ? (ticket as any).ticketPagos
+    const pagos: any[] = Array.isArray(ticket.ticketPagos)
+      ? ticket.ticketPagos
       : [];
     const pendiente = pagos.find(
       (p) => !p.anulado && p.estadoPago === 'PENDIENTE' && p.checkoutUrl,
     );
 
     if (!pendiente) {
-      const yaPagado = pagos.some((p) => !p.anulado && p.estadoPago === 'PAGADO');
+      const yaPagado = pagos.some(
+        (p) => !p.anulado && p.estadoPago === 'PAGADO',
+      );
       throw new BadRequestException(
         yaPagado
           ? `El ticket ${ticket.numeroTicket} ya está pagado: no hay enlace que enviar.`
@@ -801,14 +892,23 @@ export class TicketsService {
       const ticket = await tx.ticket.findUnique({ where: { id } });
 
       if (!ticket) {
-        throw new NotFoundException(`No se encontró el ticket con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró el ticket con el ID ${id}.`,
+        );
       }
 
       if (ticket.anulado) {
-        throw new BadRequestException(`El ticket ${ticket.numeroTicket} ya se encuentra anulado.`);
+        throw new BadRequestException(
+          `El ticket ${ticket.numeroTicket} ya se encuentra anulado.`,
+        );
       }
 
-      await this.exigirCajaAbierta(tx, ticket.idAperturaCaja);
+      await this.exigirCajaAbierta(
+        tx,
+        ticket.idAperturaCaja,
+        `La caja ${ticket.idAperturaCaja}, a la que entró el ticket ${ticket.numeroTicket}, ya está cerrada. ` +
+          'Anularlo ahora alteraría un arqueo congelado, así que debe registrarse como ajuste posterior al cierre.',
+      );
 
       const ahora = getFechaUTC6();
       const anulado = await tx.ticket.update({
@@ -850,9 +950,77 @@ export class TicketsService {
       });
     };
 
-    if (!verificarFirmaTicket(dto.numeroTicket, dto.firma)) {
+    // Dos esquemas de firma conviven. El pase normal lo firma el servidor con HMAC;
+    // el emitido sin conexión lo firma la propia taquilla con su llave privada, y se
+    // comprueba con la pública que dejó registrada.
+    //
+    // Cuál aplicar NO depende solo de que venga `dispositivo`: el folio ya trae la
+    // serie de quien lo emitió, así que se deduce de ahí cuando el campo falta. Sin
+    // esto, un cliente que olvide mandarlo recibe una verificación HMAC que nunca
+    // puede pasar, y el rechazo se confunde con un pase inválido — el mismo fallo
+    // silencioso que se lleva por delante el sello de uso de una venta legítima.
+    const serieDelFolio = /^[^-]+-(D[0-9]{2,})-[0-9]{4}-[0-9]{6}$/.exec(
+      dto.numeroTicket,
+    )?.[1];
+
+    const taquilla = dto.dispositivo
+      ? await this.prisma.dispositivoTaquilla.findUnique({
+          where: { idDispositivo: dto.dispositivo },
+        })
+      : serieDelFolio
+        ? await this.prisma.dispositivoTaquilla.findFirst({
+            where: { serie: serieDelFolio },
+          })
+        : null;
+
+    if (dto.dispositivo || serieDelFolio) {
+      if (!taquilla) {
+        await registrarIntento('RECHAZADO - dispositivo emisor desconocido');
+        throw new UnauthorizedException(
+          'El código QR no es válido o fue alterado.',
+        );
+      }
+
+      // Revocar es lo que se hace con un equipo perdido: a partir de ahí sus pases
+      // no abren la puerta, estén bien firmados o no.
+      if (taquilla.revocado) {
+        await registrarIntento(
+          `RECHAZADO - dispositivo ${taquilla.serie} revocado`,
+        );
+        throw new UnauthorizedException(
+          'El dispositivo que emitió este pase fue dado de baja. Consulte en taquilla.',
+        );
+      }
+
+      // Cada taquilla solo puede numerar en SU serie. Sin esta comprobación, un
+      // equipo con su llave podría firmar folios de la serie de otro y ensuciar
+      // una numeración que no le corresponde.
+      if (serieDelFolio !== taquilla.serie) {
+        await registrarIntento(
+          `RECHAZADO - folio ajeno a la serie ${taquilla.serie} del dispositivo`,
+        );
+        throw new UnauthorizedException(
+          'El código QR no es válido o fue alterado.',
+        );
+      }
+
+      if (
+        !verificarFirmaDispositivo(
+          dto.numeroTicket,
+          dto.firma,
+          taquilla.llavePublica,
+        )
+      ) {
+        await registrarIntento('RECHAZADO - firma del dispositivo inválida');
+        throw new UnauthorizedException(
+          'El código QR no es válido o fue alterado.',
+        );
+      }
+    } else if (!verificarFirmaTicket(dto.numeroTicket, dto.firma)) {
       await registrarIntento('RECHAZADO - firma del QR inválida');
-      throw new UnauthorizedException('El código QR no es válido o fue alterado.');
+      throw new UnauthorizedException(
+        'El código QR no es válido o fue alterado.',
+      );
     }
 
     const ticket = await this.prisma.ticket.findUnique({
@@ -861,35 +1029,108 @@ export class TicketsService {
     });
 
     if (!ticket) {
+      // Un pase de taquilla bien firmado que todavía no existe aquí no es un intento
+      // de fraude: es una venta sin conexión sin subir. Se distingue del folio
+      // inventado porque el mensaje tiene que decirle al portero qué hacer —pedir que
+      // sincronicen— en vez de mandar al visitante de vuelta como si trajera algo falso.
+      // Se mira la taquilla RESUELTA, no el campo del cuerpo: si se dedujo por la
+      // serie del folio, el pase es igual de legítimo y el portero necesita la misma
+      // explicación. Mirando `dto.dispositivo` se caía al 404 de folio inexistente,
+      // que le dice al portero justo lo contrario de lo que pasa.
+      if (taquilla) {
+        await registrarIntento(
+          'RECHAZADO - venta sin conexión aún no sincronizada',
+        );
+        // El `codigo` es el contrato: la puerta pinta este caso distinto del rechazo
+        // por reuso, y hacerlo depender del texto lo rompería con solo reescribir la
+        // frase. Se conserva `message` para lo que ya lo muestra.
+        throw new ConflictException({
+          codigo: 'PENDIENTE_SINCRONIZACION',
+          numeroTicket: dto.numeroTicket,
+          message:
+            `El pase ${dto.numeroTicket} se emitió sin conexión y todavía no se ha sincronizado. ` +
+            'Pida en taquilla que suban la cola pendiente y vuelva a intentarlo.',
+        });
+      }
+
       await registrarIntento('RECHAZADO - ticket inexistente');
       throw new NotFoundException(`No existe el ticket ${dto.numeroTicket}.`);
     }
 
     if (ticket.anulado) {
       await registrarIntento('RECHAZADO - ticket anulado');
-      throw new ConflictException(`El ticket ${dto.numeroTicket} está anulado.`);
+      throw new ConflictException({
+        codigo: 'TICKET_ANULADO',
+        numeroTicket: dto.numeroTicket,
+        message: `El ticket ${dto.numeroTicket} está anulado.`,
+      });
     }
 
     if (ticket.fechaUso) {
-      await registrarIntento(`RECHAZADO - ya utilizado el ${ticket.fechaUso.toISOString()}`);
-      throw new ConflictException(
-        `El ticket ${dto.numeroTicket} ya fue utilizado el ${ticket.fechaUso.toISOString()}.`,
+      await registrarIntento(
+        `RECHAZADO - ya utilizado el ${ticket.fechaUso.toISOString()}`,
       );
+      throw new ConflictException({
+        codigo: 'TICKET_YA_UTILIZADO',
+        numeroTicket: dto.numeroTicket,
+        fechaUso: ticket.fechaUso.toISOString(),
+        message: `El ticket ${dto.numeroTicket} ya fue utilizado el ${ticket.fechaUso.toISOString()}.`,
+      });
     }
 
-    // El ticket se emite junto con el link de pago, así que su QR existe antes de
-    // que la tarjeta se cobre. Sin esta verificación, bastaría generar un link y
-    // presentarse en la entrada sin pagar.
-    const pendiente = ticket.ticketPagos?.find(
-      (p: any) => !p.anulado && (p.estadoPago === ESTADO_PAGO_PENDIENTE || p.estadoPago === 'Pago pendiente'),
+    /**
+     * El ticket se emite junto con el link de pago, así que su QR existe antes de
+     * que la tarjeta se cobre. Sin esta verificación, bastaría generar un link y
+     * presentarse en la entrada sin pagar.
+     *
+     * LA COMPROBACIÓN ES AFIRMATIVA, Y ESO NO ES UN DETALLE
+     * ----------------------------------------------------
+     * Antes solo se buscaba un pago `PENDIENTE` y se abría si no aparecía ninguno.
+     * Eso daba por pagado todo lo que no estuviera pendiente, y dejó de ser cierto
+     * en cuanto el webhook empezó a escribir `CANCELADO`: un cobro que se cayó salía
+     * de la condición de «pendiente» y el pase abría la puerta sin haberse pagado.
+     *
+     * Ahora se exige lo contrario: al menos un pago vigente `PAGADO` y ninguno
+     * vigente en otro estado. Es compatible con todas las vías de emisión, porque
+     * las cuatro crean su fila de pago y el efectivo —tanto en taquilla como en la
+     * subida sin conexión— nace `PAGADO`.
+     *
+     * Cada pase se juzga con SUS propios pagos: en una venta con guía sin carnet hay
+     * dos tickets y dos cobros independientes, y el del visitante no tiene por qué
+     * esperar al del guía.
+     */
+    const vigentes = (ticket.ticketPagos ?? []).filter((p: any) => !p.anulado);
+    const noConfirmados = vigentes.filter(
+      (p: any) => p.estadoPago !== ESTADO_PAGO_PAGADO,
     );
 
-    if (pendiente) {
-      await registrarIntento('RECHAZADO - pago pendiente de confirmación');
-      throw new ConflictException(
-        `El ticket ${dto.numeroTicket} tiene un pago pendiente de confirmación. ` +
-          'No se permite el ingreso hasta que la pasarela confirme el cobro.',
+    if (vigentes.length === 0 || noConfirmados.length > 0) {
+      const hayPendiente = noConfirmados.some(
+        (p: any) =>
+          p.estadoPago === ESTADO_PAGO_PENDIENTE ||
+          p.estadoPago === 'Pago pendiente',
       );
+
+      // El código `PAGO_PENDIENTE` se conserva para el caso pendiente: la puerta lo
+      // pinta distinto del resto y cambiarlo rompería al cliente. Lo demás —cobro
+      // cancelado, o un ticket sin ninguna fila de pago— es `PAGO_NO_CONFIRMADO`.
+      const codigo = hayPendiente ? 'PAGO_PENDIENTE' : 'PAGO_NO_CONFIRMADO';
+
+      await registrarIntento(
+        hayPendiente
+          ? 'RECHAZADO - pago pendiente de confirmación'
+          : 'RECHAZADO - sin pago confirmado',
+      );
+
+      throw new ConflictException({
+        codigo,
+        numeroTicket: dto.numeroTicket,
+        message: hayPendiente
+          ? `El ticket ${dto.numeroTicket} tiene un pago pendiente de confirmación. ` +
+            'No se permite el ingreso hasta que la pasarela confirme el cobro.'
+          : `El ticket ${dto.numeroTicket} no tiene un pago confirmado. ` +
+            'Consulte en taquilla antes de permitir el ingreso.',
+      });
     }
 
     const usado = await this.prisma.ticket.update({
@@ -900,6 +1141,10 @@ export class TicketsService {
 
     await registrarIntento('ACEPTADO - ingreso autorizado');
 
-    return { valido: true, mensaje: 'Ingreso autorizado.', ticket: this.formatearTicket(usado) };
+    return {
+      valido: true,
+      mensaje: 'Ingreso autorizado.',
+      ticket: this.formatearTicket(usado),
+    };
   }
 }

@@ -29,7 +29,7 @@ const COLUMNAS = [
   { clave: 'nombre', titulo: 'Grupo', formato: 'texto' as const, ancho: 0.16 },
   {
     clave: 'vendedor',
-    titulo: 'Vendedor',
+    titulo: 'Colaborador',
     formato: 'texto' as const,
     ancho: 0.12,
   },
@@ -72,12 +72,13 @@ const COLUMNAS = [
  */
 export const ventasDetalle: DefinicionReporte = {
   clave: 'ventas-detalle',
-  titulo: 'Detalle de ventas',
+  titulo: 'Detalle de recaudación',
   descripcion:
-    'Listado completo de los tickets emitidos en el período, un renglón por ticket, con ' +
-    'folio, fecha, grupo, vendedor, atracción, recorrido, origen, país, guía, personas y ' +
-    'monto. Es el libro de ventas; sirve cuando se pide el detalle, el listado o el ' +
-    'desglose ticket por ticket en vez de un resumen agregado.',
+    'El libro de recaudación: un renglón por ticket, con folio, fecha, grupo, ' +
+    'colaborador, atracción y monto.',
+  pistasIa:
+    'Trae además recorrido, origen, país, guía y personas. Elígelo cuando pidan el ' +
+    'detalle, el listado o el desglose ticket por ticket en vez de un resumen agregado.',
   categoria: 'Tickets',
   moduloOrigen: 'EmisionTickets',
   // Once columnas de las que cinco son texto: en vertical no cabe.
@@ -125,7 +126,7 @@ export const ventasDetalle: DefinicionReporte = {
     }));
 
     return {
-      titulo: 'Detalle de ventas',
+      titulo: 'Detalle de recaudación',
       periodo: periodoDe(filtros),
       filtrosAplicados: filtros.aplicados,
       kpis: [

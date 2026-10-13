@@ -15,15 +15,50 @@ import { MailService } from '../mail/mail.service';
 
 const EJECUTOR = { id: 1, email: 'qa@test.com' };
 
-const ATRACCION = { id: 1, codigo: 'cuevas', nombre: 'Cuevas Actun Kan', anulado: false };
-const NACIONAL = { id: 1, codigo: 'nacional', nombre: 'Nacional', anulado: false };
-const EXTRANJERO = { id: 2, codigo: 'extranjero', nombre: 'Extranjero', anulado: false };
-const RECORRIDO = { id: 1, codigo: 'corto', nombre: 'Recorrido corto', anulado: false };
-const EFECTIVO = { id: 1, nombre: 'Efectivo', esEfectivo: true, anulado: false };
+const ATRACCION = {
+  id: 1,
+  codigo: 'cuevas',
+  nombre: 'Cuevas Actun Kan',
+  anulado: false,
+};
+const NACIONAL = {
+  id: 1,
+  codigo: 'nacional',
+  nombre: 'Nacional',
+  anulado: false,
+};
+const EXTRANJERO = {
+  id: 2,
+  codigo: 'extranjero',
+  nombre: 'Extranjero',
+  anulado: false,
+};
+const RECORRIDO = {
+  id: 1,
+  codigo: 'corto',
+  nombre: 'Recorrido corto',
+  anulado: false,
+};
+const EFECTIVO = {
+  id: 1,
+  nombre: 'Efectivo',
+  esEfectivo: true,
+  anulado: false,
+};
 
 const ADULTO = { id: 1, codigo: 'adulto', nombre: 'Adulto', anulado: false };
-const NINO = { id: 2, codigo: 'nino', nombre: 'Niño (7 años o más)', anulado: false };
-const NINO_MENOR = { id: 3, codigo: 'nino_menor', nombre: 'Niño menor de 7 años', anulado: false };
+const NINO = {
+  id: 2,
+  codigo: 'nino',
+  nombre: 'Niño (7 años o más)',
+  anulado: false,
+};
+const NINO_MENOR = {
+  id: 3,
+  codigo: 'nino_menor',
+  nombre: 'Niño menor de 7 años',
+  anulado: false,
+};
 const CENTRO_EDUCATIVO = {
   id: 4,
   codigo: 'centro_educativo',
@@ -40,19 +75,27 @@ const PRECIOS: Record<number, Record<number, number>> = {
 const crearTxMock = () => {
   const tx: any = {
     aperturaCaja: {
-      findUnique: jest
-        .fn()
-        .mockResolvedValue({ id: 9, anulado: false, estado: { nombre: 'Abierta' } }),
+      findUnique: jest.fn().mockResolvedValue({
+        id: 9,
+        anulado: false,
+        estado: { nombre: 'Abierta' },
+      }),
     },
     atraccion: { findUnique: jest.fn().mockResolvedValue(ATRACCION) },
     origenVisitante: { findUnique: jest.fn().mockResolvedValue(NACIONAL) },
     tipoRecorrido: { findUnique: jest.fn().mockResolvedValue(RECORRIDO) },
     opcionPago: { findUnique: jest.fn().mockResolvedValue(EFECTIVO) },
-    pais: { findUnique: jest.fn().mockResolvedValue({ id: 50, nombre: 'España', anulado: false }) },
+    pais: {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ id: 50, nombre: 'España', anulado: false }),
+    },
     tipoVisitante: {
       findUnique: jest.fn(({ where }: any) =>
         Promise.resolve(
-          [ADULTO, NINO, NINO_MENOR, CENTRO_EDUCATIVO].find((t) => t.id === where.id) ?? null,
+          [ADULTO, NINO, NINO_MENOR, CENTRO_EDUCATIVO].find(
+            (t) => t.id === where.id,
+          ) ?? null,
         ),
       ),
     },
@@ -64,14 +107,20 @@ const crearTxMock = () => {
     },
     tarifaGuia: { findFirst: jest.fn().mockResolvedValue({ precio: 15 }) },
     // findFirst se usa para rechazar nombres de guía repetidos; sin coincidencia por defecto.
-    guia: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+    guia: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn(),
+    },
     grupoEmision: { create: jest.fn().mockResolvedValue({ id: 100 }) },
     correlativo: {
       upsert: jest.fn(),
     },
     ticket: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     ticketPago: { updateMany: jest.fn() },
-    usuario: { findUnique: jest.fn().mockResolvedValue({ id: 1, nombre: 'QA Tester' }) },
+    usuario: {
+      findUnique: jest.fn().mockResolvedValue({ id: 1, nombre: 'QA Tester' }),
+    },
   };
 
   // Correlativo: incrementa en cada llamada, como haría el upsert real.
@@ -127,7 +176,9 @@ describe('TicketsService', () => {
     };
     mailService = { enviarEnlacePago: jest.fn().mockResolvedValue(undefined) };
 
-    jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
+    jest
+      .spyOn(BitacoraService, 'registrarEnTransaccion')
+      .mockResolvedValue({} as any);
 
     const modulo: TestingModule = await Test.createTestingModule({
       providers: [
@@ -209,19 +260,29 @@ describe('TicketsService', () => {
     it('rechaza la venta si no hay tarifa vigente para la combinación', async () => {
       tx.tarifa.findFirst.mockResolvedValue(null);
 
-      await expect(service.emitir(dtoBase(), EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.emitir(dtoBase(), EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
   describe('pago con tarjeta', () => {
-    const TARJETA = { id: 2, nombre: 'Tarjeta', esEfectivo: false, anulado: false };
+    const TARJETA = {
+      id: 2,
+      nombre: 'Tarjeta',
+      esEfectivo: false,
+      anulado: false,
+    };
 
     beforeEach(() => {
       tx.opcionPago.findUnique.mockResolvedValue(TARJETA);
     });
 
     it('genera el link de pago y deja el cobro PENDIENTE', async () => {
-      const res = await service.emitir(dtoBase({ idOpcionPago: TARJETA.id }), EJECUTOR);
+      const res = await service.emitir(
+        dtoBase({ idOpcionPago: TARJETA.id }),
+        EJECUTOR,
+      );
 
       const pago = tx.ticket.create.mock.calls[0][0].data.ticketPagos.create;
       expect(pago.estadoPago).toBe('PENDIENTE');
@@ -261,6 +322,34 @@ describe('TicketsService', () => {
       expect(pago.fechaPago).toBeDefined();
       expect(res.tickets[0].estadoPago).toBe('PAGADO');
     });
+
+    /**
+     * Antes 'no pendiente' se presentaba como PAGADO, asi que un cobro que se cayo
+     * se anunciaba como cobrado en la ficha del ticket y en el PDF.
+     */
+    it('un cobro cancelado se presenta como no confirmado, no como pagado', () => {
+      const presentado = (service as any).formatearTicket({
+        id: 1,
+        numeroTicket: 'TCK-2026-000001',
+        qrFirma: 'firma',
+        anulado: false,
+        ticketPagos: [{ anulado: false, estadoPago: 'CANCELADO' }],
+      });
+
+      expect(presentado.estadoPago).toBe('Pago no confirmado');
+    });
+
+    it('un ticket anulado sigue diciendo CANCELADO', () => {
+      const presentado = (service as any).formatearTicket({
+        id: 1,
+        numeroTicket: 'TCK-2026-000001',
+        qrFirma: 'firma',
+        anulado: true,
+        ticketPagos: [{ anulado: true, estadoPago: 'CANCELADO' }],
+      });
+
+      expect(presentado.estadoPago).toBe('CANCELADO');
+    });
   });
 
   describe('reglas de negocio', () => {
@@ -296,7 +385,9 @@ describe('TicketsService', () => {
     it('rechaza emitir un ticket sin personas', async () => {
       await expect(
         service.emitir(
-          dtoBase({ cantidades: [{ idTipoVisitante: ADULTO.id, cantidad: 0 }] }),
+          dtoBase({
+            cantidades: [{ idTipoVisitante: ADULTO.id, cantidad: 0 }],
+          }),
           EJECUTOR,
         ),
       ).rejects.toThrow(BadRequestException);
@@ -305,7 +396,9 @@ describe('TicketsService', () => {
     it('rechaza emitir si no hay caja abierta', async () => {
       cajasService.obtenerActual.mockResolvedValue(null);
 
-      await expect(service.emitir(dtoBase(), EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.emitir(dtoBase(), EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(tx.ticket.create).not.toHaveBeenCalled();
     });
 
@@ -316,7 +409,9 @@ describe('TicketsService', () => {
         estado: { nombre: 'Cerrada' },
       });
 
-      await expect(service.emitir(dtoBase(), EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.emitir(dtoBase(), EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(tx.ticket.create).not.toHaveBeenCalled();
     });
   });
@@ -361,14 +456,26 @@ describe('TicketsService', () => {
     });
 
     it('permite forma de pago distinta para el ticket del guía', async () => {
-      tx.guia.findUnique.mockResolvedValue({ id: 8, nombre: 'X', tieneCarnet: false, anulado: false });
-      const tarjeta = { id: 2, nombre: 'Tarjeta', esEfectivo: false, anulado: false };
+      tx.guia.findUnique.mockResolvedValue({
+        id: 8,
+        nombre: 'X',
+        tieneCarnet: false,
+        anulado: false,
+      });
+      const tarjeta = {
+        id: 2,
+        nombre: 'Tarjeta',
+        esEfectivo: false,
+        anulado: false,
+      };
       tx.opcionPago.findUnique.mockImplementation(({ where }: any) =>
         Promise.resolve(where.id === 2 ? tarjeta : EFECTIVO),
       );
 
       await service.emitir(
-        dtoBase({ guia: { modo: 'existente', idGuia: 8, idOpcionPagoGuia: 2 } }),
+        dtoBase({
+          guia: { modo: 'existente', idGuia: 8, idOpcionPagoGuia: 2 },
+        }),
         EJECUTOR,
       );
 
@@ -384,23 +491,38 @@ describe('TicketsService', () => {
       });
 
       await service.emitir(
-        dtoBase({ guia: { modo: 'nuevo', nombre: 'Guía Nuevo', tieneCarnet: false } }),
+        dtoBase({
+          guia: { modo: 'nuevo', nombre: 'Guía Nuevo', tieneCarnet: false },
+        }),
         EJECUTOR,
       );
 
       expect(tx.guia.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ nombre: 'Guía Nuevo', tieneCarnet: false }),
+          data: expect.objectContaining({
+            nombre: 'Guía Nuevo',
+            tieneCarnet: false,
+          }),
         }),
       );
     });
 
     it('rechaza con 409 un guía nuevo cuyo nombre ya existe', async () => {
-      tx.guia.findFirst.mockResolvedValue({ id: 99, nombre: 'Carlos Garcia', anulado: false });
+      tx.guia.findFirst.mockResolvedValue({
+        id: 99,
+        nombre: 'Carlos Garcia',
+        anulado: false,
+      });
 
       await expect(
         service.emitir(
-          dtoBase({ guia: { modo: 'nuevo', nombre: 'Carlos Garcia', tieneCarnet: false } }),
+          dtoBase({
+            guia: {
+              modo: 'nuevo',
+              nombre: 'Carlos Garcia',
+              tieneCarnet: false,
+            },
+          }),
           EJECUTOR,
         ),
       ).rejects.toThrow(ConflictException);
@@ -412,7 +534,9 @@ describe('TicketsService', () => {
     it('exige número de carnet cuando el guía nuevo dice tenerlo', async () => {
       await expect(
         service.emitir(
-          dtoBase({ guia: { modo: 'nuevo', nombre: 'Sin número', tieneCarnet: true } }),
+          dtoBase({
+            guia: { modo: 'nuevo', nombre: 'Sin número', tieneCarnet: true },
+          }),
           EJECUTOR,
         ),
       ).rejects.toThrow(BadRequestException);
@@ -429,7 +553,12 @@ describe('TicketsService', () => {
     });
 
     it('no repite folio entre los dos tickets de una misma emisión', async () => {
-      tx.guia.findUnique.mockResolvedValue({ id: 8, nombre: 'X', tieneCarnet: false, anulado: false });
+      tx.guia.findUnique.mockResolvedValue({
+        id: 8,
+        nombre: 'X',
+        tieneCarnet: false,
+        anulado: false,
+      });
 
       const res = await service.emitir(
         dtoBase({ guia: { modo: 'existente', idGuia: 8 } }),
@@ -457,7 +586,10 @@ describe('TicketsService', () => {
 
     it('rechaza una firma alterada', async () => {
       await expect(
-        service.validar({ numeroTicket: NUMERO, firma: 'firma-falsa' }, EJECUTOR),
+        service.validar(
+          { numeroTicket: NUMERO, firma: 'firma-falsa' },
+          EJECUTOR,
+        ),
       ).rejects.toThrow(UnauthorizedException);
       expect(prisma.ticket.findUnique).not.toHaveBeenCalled();
     });
@@ -465,24 +597,39 @@ describe('TicketsService', () => {
     it('rechaza un ticket inexistente', async () => {
       prisma.ticket.findUnique.mockResolvedValue(null);
 
-      await expect(service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR)).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('rechaza un ticket anulado', async () => {
-      prisma.ticket.findUnique.mockResolvedValue({ id: 1, anulado: true, fechaUso: null });
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: true,
+        fechaUso: null,
+      });
 
-      await expect(service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR)).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR),
+      ).rejects.toThrow(ConflictException);
     });
 
     it('acepta el primer uso y lo sella', async () => {
-      prisma.ticket.findUnique.mockResolvedValue({ id: 1, anulado: false, fechaUso: null });
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        fechaUso: null,
+        // Todo ticket nace con su fila de pago: el efectivo y la subida sin
+        // conexion la crean en PAGADO, la tarjeta en PENDIENTE. Un ticket sin
+        // ninguna es un estado que la emision no puede producir.
+        ticketPagos: [{ anulado: false, estadoPago: 'PAGADO' }],
+      });
       prisma.ticket.update.mockResolvedValue({ id: 1, fechaUso: new Date() });
 
-      const res = await service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR);
+      const res = await service.validar(
+        { numeroTicket: NUMERO, firma: FIRMA },
+        EJECUTOR,
+      );
 
       expect(res.valido).toBe(true);
       expect(prisma.ticket.update).toHaveBeenCalledWith(
@@ -501,9 +648,9 @@ describe('TicketsService', () => {
         ticketPagos: [{ anulado: false, estadoPago: 'PENDIENTE' }],
       });
 
-      await expect(service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR)).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR),
+      ).rejects.toThrow(ConflictException);
       expect(prisma.ticket.update).not.toHaveBeenCalled();
     });
 
@@ -516,8 +663,123 @@ describe('TicketsService', () => {
       });
       prisma.ticket.update.mockResolvedValue({ id: 1, fechaUso: new Date() });
 
-      const res = await service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR);
+      const res = await service.validar(
+        { numeroTicket: NUMERO, firma: FIRMA },
+        EJECUTOR,
+      );
       expect(res.valido).toBe(true);
+    });
+
+    /**
+     * El agujero que abrio el webhook: antes la puerta solo buscaba un pago
+     * PENDIENTE, asi que un cobro cancelado salia de la condicion y el pase abria
+     * la entrada sin haberse pagado nunca.
+     */
+    it('rechaza el ingreso si el cobro se cancelo', async () => {
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        fechaUso: null,
+        ticketPagos: [{ anulado: false, estadoPago: 'CANCELADO' }],
+      });
+
+      await expect(
+        service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ codigo: 'PAGO_NO_CONFIRMADO' }),
+      });
+      expect(prisma.ticket.update).not.toHaveBeenCalled();
+    });
+
+    it('rechaza un ticket sin ninguna fila de pago', async () => {
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        fechaUso: null,
+        ticketPagos: [],
+      });
+
+      await expect(
+        service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.ticket.update).not.toHaveBeenCalled();
+    });
+
+    it('rechaza si uno de los pagos del pase no esta confirmado', async () => {
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        fechaUso: null,
+        ticketPagos: [
+          { anulado: false, estadoPago: 'PAGADO' },
+          { anulado: false, estadoPago: 'CANCELADO' },
+        ],
+      });
+
+      await expect(
+        service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('un pago anulado no bloquea si queda otro confirmado', async () => {
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        fechaUso: null,
+        ticketPagos: [
+          { anulado: true, estadoPago: 'PENDIENTE' },
+          { anulado: false, estadoPago: 'PAGADO' },
+        ],
+      });
+      prisma.ticket.update.mockResolvedValue({ id: 1, fechaUso: new Date() });
+
+      const res = await service.validar(
+        { numeroTicket: NUMERO, firma: FIRMA },
+        EJECUTOR,
+      );
+      expect(res.valido).toBe(true);
+    });
+
+    // El codigo lo pinta distinto la pantalla de la puerta: cambiarlo romperia al
+    // cliente, asi que el caso pendiente conserva PAGO_PENDIENTE.
+    it('conserva el codigo PAGO_PENDIENTE para el pago pendiente', async () => {
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        fechaUso: null,
+        ticketPagos: [{ anulado: false, estadoPago: 'PENDIENTE' }],
+      });
+
+      await expect(
+        service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ codigo: 'PAGO_PENDIENTE' }),
+      });
+    });
+
+    /**
+     * Una venta con guia sin carnet produce dos tickets y dos cobros aparte. Cada
+     * pase se juzga con SUS pagos: fijarlo evita que alguien los una mas adelante
+     * por grupo de emision y acople la entrada del visitante a la del guia.
+     */
+    it('solo mira los pagos del ticket consultado', async () => {
+      prisma.ticket.findUnique.mockResolvedValue({
+        id: 1,
+        anulado: false,
+        fechaUso: null,
+        idGrupoEmision: 9,
+        ticketPagos: [{ anulado: false, estadoPago: 'PAGADO' }],
+      });
+      prisma.ticket.update.mockResolvedValue({ id: 1, fechaUso: new Date() });
+
+      const res = await service.validar(
+        { numeroTicket: NUMERO, firma: FIRMA },
+        EJECUTOR,
+      );
+
+      expect(res.valido).toBe(true);
+      // No se consultan los demas tickets del grupo para decidir.
+      expect(prisma.ticket.findMany).not.toHaveBeenCalled();
     });
 
     it('rechaza el reingreso de un ticket ya usado', async () => {
@@ -527,9 +789,9 @@ describe('TicketsService', () => {
         fechaUso: new Date('2026-08-13T10:00:00Z'),
       });
 
-      await expect(service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR)).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        service.validar({ numeroTicket: NUMERO, firma: FIRMA }, EJECUTOR),
+      ).rejects.toThrow(ConflictException);
       expect(prisma.ticket.update).not.toHaveBeenCalled();
     });
 
@@ -539,7 +801,10 @@ describe('TicketsService', () => {
       ).rejects.toThrow(UnauthorizedException);
 
       expect(bitacoraService.registrar).toHaveBeenCalledWith(
-        expect.objectContaining({ accion: 'VALIDAR_TICKET', modulo: 'Tickets' }),
+        expect.objectContaining({
+          accion: 'VALIDAR_TICKET',
+          modulo: 'Tickets',
+        }),
       );
     });
   });
@@ -552,12 +817,18 @@ describe('TicketsService', () => {
         anulado: false,
         idAperturaCaja: 9,
       });
-      tx.ticket.update.mockResolvedValue({ id: 5, numeroTicket: 'TCK-2026-000005', anulado: true });
+      tx.ticket.update.mockResolvedValue({
+        id: 5,
+        numeroTicket: 'TCK-2026-000005',
+        anulado: true,
+      });
 
       await service.anular(5, EJECUTOR);
 
       expect(tx.ticketPago.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ anulado: true }) }),
+        expect.objectContaining({
+          data: expect.objectContaining({ anulado: true }),
+        }),
       );
     });
 
@@ -569,7 +840,9 @@ describe('TicketsService', () => {
         idAperturaCaja: 9,
       });
 
-      await expect(service.anular(5, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.anular(5, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -596,13 +869,19 @@ describe('TicketsService', () => {
     });
 
     beforeEach(() => {
-      jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
+      jest
+        .spyOn(BitacoraService, 'registrarEnTransaccion')
+        .mockResolvedValue({} as any);
     });
 
     it('envía el enlace guardado, no uno que venga de fuera', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue(ticketConEnlace() as any);
+      jest.spyOn(service, 'findOne').mockResolvedValue(ticketConEnlace());
 
-      const salida = await service.enviarEnlacePago(7, 'cliente@correo.com', EJECUTOR);
+      const salida = await service.enviarEnlacePago(
+        7,
+        'cliente@correo.com',
+        EJECUTOR,
+      );
 
       expect(mailService.enviarEnlacePago).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -619,7 +898,7 @@ describe('TicketsService', () => {
     it('rechaza un ticket anulado: su enlace ya no sirve', async () => {
       jest
         .spyOn(service, 'findOne')
-        .mockResolvedValue(ticketConEnlace({ anulado: true }) as any);
+        .mockResolvedValue(ticketConEnlace({ anulado: true }));
 
       await expect(
         service.enviarEnlacePago(7, 'cliente@correo.com', EJECUTOR),
@@ -630,8 +909,10 @@ describe('TicketsService', () => {
     it('rechaza un ticket ya pagado: no hay enlace que mandar', async () => {
       jest.spyOn(service, 'findOne').mockResolvedValue(
         ticketConEnlace({
-          ticketPagos: [{ anulado: false, estadoPago: 'PAGADO', checkoutUrl: null }],
-        }) as any,
+          ticketPagos: [
+            { anulado: false, estadoPago: 'PAGADO', checkoutUrl: null },
+          ],
+        }),
       );
 
       await expect(
@@ -643,7 +924,7 @@ describe('TicketsService', () => {
     it('rechaza un ticket en efectivo, que nunca tuvo enlace', async () => {
       jest
         .spyOn(service, 'findOne')
-        .mockResolvedValue(ticketConEnlace({ ticketPagos: [] }) as any);
+        .mockResolvedValue(ticketConEnlace({ ticketPagos: [] }));
 
       await expect(
         service.enviarEnlacePago(7, 'cliente@correo.com', EJECUTOR),
@@ -651,7 +932,7 @@ describe('TicketsService', () => {
     });
 
     it('deja constancia en bitácora de a qué dirección salió', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue(ticketConEnlace() as any);
+      jest.spyOn(service, 'findOne').mockResolvedValue(ticketConEnlace());
 
       await service.enviarEnlacePago(7, 'cliente@correo.com', EJECUTOR);
 
@@ -665,7 +946,7 @@ describe('TicketsService', () => {
     });
 
     it('propaga el fallo del envío en vez de decir que se mandó', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue(ticketConEnlace() as any);
+      jest.spyOn(service, 'findOne').mockResolvedValue(ticketConEnlace());
       mailService.enviarEnlacePago.mockRejectedValue(new Error('SMTP caído'));
 
       await expect(
@@ -743,7 +1024,10 @@ describe('TicketsService', () => {
       prisma.ticket.count.mockResolvedValue(vigentes.count + anulados.count);
       prisma.ticket.aggregate
         .mockResolvedValueOnce({
-          _sum: { montoTotal: vigentes.monto, cantidadPersonas: vigentes.personas },
+          _sum: {
+            montoTotal: vigentes.monto,
+            cantidadPersonas: vigentes.personas,
+          },
           _count: { _all: vigentes.count },
         })
         .mockResolvedValueOnce({
@@ -752,12 +1036,16 @@ describe('TicketsService', () => {
         });
     };
 
-    const whereDe = (llamada: number) => prisma.ticket.aggregate.mock.calls[llamada][0].where;
+    const whereDe = (llamada: number) =>
+      prisma.ticket.aggregate.mock.calls[llamada][0].where;
 
     it('suma solo los vigentes aunque el listado incluya anulados', async () => {
-      prepararAgregados({ monto: 400, personas: 10, count: 4 }, { monto: 250, count: 2 });
+      prepararAgregados(
+        { monto: 400, personas: 10, count: 4 },
+        { monto: 250, count: 2 },
+      );
 
-      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+      const res = await service.findAll({ incluirAnulados: 'true' });
 
       expect(res.metricas.montoRecaudado).toBe('400');
       expect(res.metricas.ticketsVigentes).toBe(4);
@@ -765,18 +1053,24 @@ describe('TicketsService', () => {
 
     // Los visitantes de un ticket anulado no entraron con ese ticket.
     it('tampoco cuenta a sus personas', async () => {
-      prepararAgregados({ monto: 400, personas: 10, count: 4 }, { monto: 250, count: 2 });
+      prepararAgregados(
+        { monto: 400, personas: 10, count: 4 },
+        { monto: 250, count: 2 },
+      );
 
-      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+      const res = await service.findAll({ incluirAnulados: 'true' });
 
       expect(res.metricas.totalPersonas).toBe(10);
       expect(whereDe(0).anulado).toBe(false);
     });
 
     it('expone lo anulado por separado', async () => {
-      prepararAgregados({ monto: 400, personas: 10, count: 4 }, { monto: 250, count: 2 });
+      prepararAgregados(
+        { monto: 400, personas: 10, count: 4 },
+        { monto: 250, count: 2 },
+      );
 
-      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+      const res = await service.findAll({ incluirAnulados: 'true' });
 
       expect(res.metricas.ticketsAnulados).toBe(2);
       expect(res.metricas.montoAnulado).toBe('250');
@@ -784,9 +1078,12 @@ describe('TicketsService', () => {
     });
 
     it('totalTickets sigue cuadrando con la paginación', async () => {
-      prepararAgregados({ monto: 400, personas: 10, count: 4 }, { monto: 250, count: 2 });
+      prepararAgregados(
+        { monto: 400, personas: 10, count: 4 },
+        { monto: 250, count: 2 },
+      );
 
-      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+      const res = await service.findAll({ incluirAnulados: 'true' });
 
       expect(res.metricas.totalTickets).toBe(res.total);
       expect(res.total).toBe(6);
@@ -813,13 +1110,13 @@ describe('TicketsService', () => {
     });
 
     it('traduce página y límite a skip/take', async () => {
-      await service.findAll({ pagina: 4, limite: 25 } as any);
+      await service.findAll({ pagina: 4, limite: 25 });
 
       expect(args()).toMatchObject({ skip: 75, take: 25 });
     });
 
     it('recorta un límite fuera de rango al tope', async () => {
-      const res = await service.findAll({ limite: 5000 } as any);
+      const res = await service.findAll({ limite: 5000 });
 
       expect(res.limite).toBe(200);
     });
@@ -829,7 +1126,10 @@ describe('TicketsService', () => {
     it('ordena por fecha con desempate por id', async () => {
       await service.findAll({});
 
-      expect(args().orderBy).toEqual([{ fechaCreacion: 'desc' }, { id: 'desc' }]);
+      expect(args().orderBy).toEqual([
+        { fechaCreacion: 'desc' },
+        { id: 'desc' },
+      ]);
     });
   });
 });

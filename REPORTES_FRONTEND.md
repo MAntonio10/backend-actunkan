@@ -93,8 +93,8 @@ Authorization: Bearer <token>
   "datos": [
     {
       "clave": "ventas-por-vendedor",
-      "titulo": "Ventas por vendedor",
-      "descripcion": "Cuánto vendió cada cajero o vendedor en el período: tickets emitidos, personas atendidas, total recaudado y qué porcentaje del total representa...",
+      "titulo": "Recaudación por colaborador",
+      "descripcion": "Cuánto vendió cada colaborador: tickets, personas atendidas, total y qué porcentaje representa.",
       "categoria": "Tickets",
       "moduloOrigen": "EmisionTickets",
       "soloSupervisor": false,
@@ -104,13 +104,13 @@ Authorization: Bearer <token>
           "clave": "periodo",
           "etiqueta": "Período",
           "tipo": "rangoFechas",
-          "descripcion": "Rango de fechas del reporte, ambas inclusive...",
+          "descripcion": "Rango de fechas del reporte, ambas inclusive.",
           "requerido": true,
           "parametros": ["desde", "hasta"]
         },
         {
           "clave": "vendedor",
-          "etiqueta": "Vendedor",
+          "etiqueta": "Colaborador",
           "tipo": "usuario",
           "descripcion": "Nombre del cajero o usuario que emitió la venta.",
           "parametros": ["vendedor"]
@@ -143,7 +143,7 @@ Agrupa por `categoria` para el menú. El orden que devuelve el backend ya viene 
 | Clave | Categoría | Qué responde |
 |---|---|---|
 | `ventas-resumen` | Tickets | Recaudado, tickets, personas y ticket promedio, con una fila por día |
-| `ventas-por-vendedor` | Tickets | Cuánto vendió cada cajero y su % del total |
+| `ventas-por-vendedor` | Tickets | Cuánto vendió cada colaborador y su % del total. Se titula «Recaudación por colaborador»: la clave conserva la palabra anterior porque va en la URL y queda en la bitácora |
 | `ventas-por-atraccion` | Tickets | Cuevas vs. mariposario + sección por tipo de recorrido |
 | `ventas-por-tipo-visitante` | Tickets | Adultos, niños, niños menores y centros educativos |
 | `ventas-por-origen` | Tickets | Nacional vs. extranjero + sección por país |
@@ -296,7 +296,7 @@ Respuesta real del backend:
 ```json
 {
   "clave": "ventas-por-vendedor",
-  "titulo": "Ventas por vendedor",
+  "titulo": "Recaudación por colaborador",
   "periodo": {
     "desde": "2026-01-01",
     "hasta": "2026-12-31",
@@ -306,13 +306,13 @@ Respuesta real del backend:
   "kpis": [
     { "etiqueta": "Recaudado", "valor": "Q315.00" },
     { "etiqueta": "Tickets emitidos", "valor": "13" },
-    { "etiqueta": "Vendedores", "valor": "2" },
+    { "etiqueta": "Colaboradores", "valor": "2" },
     { "etiqueta": "Ticket promedio", "valor": "Q24.23" }
   ],
   "secciones": [
     {
       "columnas": [
-        { "clave": "grupo", "titulo": "Vendedor", "formato": "texto", "ancho": 0.32 },
+        { "clave": "grupo", "titulo": "Colaborador", "formato": "texto", "ancho": 0.32 },
         { "clave": "tickets", "titulo": "Tickets", "formato": "entero", "total": "suma" },
         { "clave": "personas", "titulo": "Personas", "formato": "entero", "total": "suma" },
         { "clave": "total", "titulo": "Total", "formato": "moneda", "total": "suma" },
@@ -340,7 +340,7 @@ Respuesta real del backend:
 | `titulo` | Encabezado de la pantalla |
 | `subtitulo` | Opcional. Aclaración bajo el título |
 | `periodo.etiqueta` | Ya viene en español legible; muéstralo tal cual |
-| `filtrosAplicados` | Chips bajo el título: `"Vendedor: Juan Pérez"`. Si viene vacío, no se aplicó ninguno |
+| `filtrosAplicados` | Chips bajo el título: `"Colaborador: Juan Pérez"`. Si viene vacío, no se aplicó ninguno |
 | `kpis` | Tarjetas de arriba. `valor` **ya viene formateado**: píntalo tal cual, no lo reformatees |
 | `secciones` | Una tabla por elemento |
 | `orientacion` | `horizontal` → la tabla es ancha; envuélvela en scroll horizontal |
@@ -537,12 +537,12 @@ POST /reportes/interpretar
 Authorization: Bearer <token>
 Content-Type: application/json
 
-{ "instruccion": "ventas del vendedor Juan en las cuevas en agosto, desglosadas por día" }
+{ "instruccion": "ventas del colaborador Juan en las cuevas en agosto, desglosadas por día" }
 ```
 
 ```json
 {
-  "instruccion": "ventas del vendedor Juan en las cuevas en agosto, desglosadas por día",
+  "instruccion": "ventas del colaborador Juan en las cuevas en agosto, desglosadas por día",
   "interpretacion": "Ventas de Juan Pérez en Cuevas Actun Kan, del 1 al 31 de agosto de 2026, por día.",
   "especificacion": {
     "clave": "ventas-resumen",

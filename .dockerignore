@@ -1,0 +1,32 @@
+# El contexto de construccion se manda entero al demonio de Docker: cuanto mas
+# chico, mas rapido, y menos riesgo de hornear algo que no debe salir del equipo.
+
+node_modules
+dist
+coverage
+
+# Secretos. El .env lo inyecta el compose en ejecucion, nunca la imagen: metido
+# en una capa queda ahi para siempre, aunque despues se borre.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+.vscode
+.claude
+
+# Pruebas y documentacion: no hacen falta para ejecutar.
+test
+**/*.spec.ts
+**/*.e2e-spec.ts
+*.md
+
+# Salidas de ejecuciones locales.
+uploads
+*.log
+muestra-*.pdf
+muestra-*.xlsx
+
+Dockerfile
+.dockerignore

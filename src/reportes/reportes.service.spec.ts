@@ -257,9 +257,13 @@ describe('ReportesService', () => {
      */
     it('dice qué parámetros de query string corresponden a cada filtro', async () => {
       const { datos } = await servicio.listarCatalogo(EJECUTOR);
-      const reporte = datos.find((r: any) => r.clave === 'ventas-por-vendedor') as any;
+      const reporte = datos.find(
+        (r: any) => r.clave === 'ventas-por-vendedor',
+      ) as any;
 
-      const periodo = reporte.filtros.find((f: any) => f.tipo === 'rangoFechas');
+      const periodo = reporte.filtros.find(
+        (f: any) => f.tipo === 'rangoFechas',
+      );
       expect(periodo.parametros).toEqual(['desde', 'hasta']);
 
       const vendedor = reporte.filtros.find((f: any) => f.clave === 'vendedor');

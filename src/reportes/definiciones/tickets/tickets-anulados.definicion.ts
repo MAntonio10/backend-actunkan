@@ -70,9 +70,10 @@ export const ticketsAnulados: DefinicionReporte = {
   clave: 'tickets-anulados',
   titulo: 'Tickets anulados',
   descripcion:
-    'Listado de los tickets que se anularon en el período: folio, cuándo se emitió, ' +
-    'cuándo se anuló, quién lo emitió y por cuánto monto. Sirve para controlar ' +
-    'anulaciones, cancelaciones o ventas revertidas.',
+    'Tickets anulados en el período: folio, cuándo se emitió, cuándo se anuló, quién ' +
+    'y por cuánto.',
+  pistasIa:
+    'Sirve para controlar anulaciones, cancelaciones o recaudación revertida.',
   categoria: 'Tickets',
   moduloOrigen: 'EmisionTickets',
   orientacionSugerida: 'horizontal',

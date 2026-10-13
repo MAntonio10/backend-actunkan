@@ -30,7 +30,11 @@ const PAYLOADS_XSS = [
   '"><svg/onload=alert(1)>',
 ];
 
-const PAYLOADS_SQLI = ["' OR 1=1--", "'; DROP TABLE Usuario;--", '1 UNION SELECT null--'];
+const PAYLOADS_SQLI = [
+  "' OR 1=1--",
+  "'; DROP TABLE Usuario;--",
+  '1 UNION SELECT null--',
+];
 
 describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
   let app: INestApplication;
@@ -46,11 +50,12 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
   const ticketsCreados: number[] = [];
   const donacionesCreadas: number[] = [];
 
-
   const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
   beforeAll(async () => {
-    const modulo = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const modulo = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
     app = modulo.createNestApplication();
     // Debe replicar src/main.ts o los 400 esperados no se producen.
     app.useGlobalPipes(
@@ -124,22 +129,34 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
       await request(http)[metodo](ruta).expect(401);
     });
 
-    it.each(rutas)('%s %s con usuario sin permiso devuelve 403', async (metodo, ruta) => {
-      await request(http)[metodo](ruta).set(auth(tokenSinPermiso)).expect(403);
-    });
+    it.each(rutas)(
+      '%s %s con usuario sin permiso devuelve 403',
+      async (metodo, ruta) => {
+        await request(http)
+          [metodo](ruta)
+          .set(auth(tokenSinPermiso))
+          .expect(403);
+      },
+    );
 
     it.each(rutas)('%s %s con permiso devuelve 200', async (metodo, ruta) => {
       await request(http)[metodo](ruta).set(auth(tokenOk)).expect(200);
     });
 
     it('rechaza un token con firma alterada', async () => {
-      await request(http).get('/cajas').set(auth(tokenOk + 'x')).expect(401);
+      await request(http)
+        .get('/cajas')
+        .set(auth(tokenOk + 'x'))
+        .expect(401);
     });
 
     // Regresión: devolvía 200 con cuerpo vacío y sin content-type cuando no había
     // caja abierta, y `response.json()` reventaba con "Unexpected end of JSON input".
     it('sin caja abierta responde JSON válido, nunca un cuerpo vacío', async () => {
-      const res = await request(http).get('/cajas/actual').set(auth(tokenOk)).expect(200);
+      const res = await request(http)
+        .get('/cajas/actual')
+        .set(auth(tokenOk))
+        .expect(200);
 
       expect(res.headers['content-type']).toMatch(/application\/json/);
       expect(res.text.length).toBeGreaterThan(0);
@@ -159,20 +176,35 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
 
   describe('Fase 2 — catálogos de emisión', () => {
     it('devuelve todos los parámetros del formulario en una llamada', async () => {
-      const res = await request(http).get('/tickets/catalogos').set(auth(tokenOk)).expect(200);
+      const res = await request(http)
+        .get('/tickets/catalogos')
+        .set(auth(tokenOk))
+        .expect(200);
       catalogos = res.body;
 
       expect(catalogos.atracciones.length).toBeGreaterThan(0);
       expect(catalogos.origenes.length).toBe(2);
       expect(catalogos.paises.length).toBeGreaterThan(100);
-      expect(catalogos.tiposVisitante.length).toBe(4);
+      // Cinco desde que existe 'visitante_especial', la segunda categoría gratuita
+      // junto a 'nino_menor'. Se comprueba que estén las dos y no un número fijo: el
+      // catálogo de categorías crece, y clavar la cuenta hace fallar la prueba cada
+      // vez que se agrega una sin que nada esté roto.
+      expect(catalogos.tiposVisitante.length).toBeGreaterThanOrEqual(4);
+      const gratuitas = catalogos.tiposVisitante
+        .map((t: any) => t.codigo)
+        .filter((c: string) =>
+          ['nino_menor', 'visitante_especial'].includes(c),
+        );
+      expect(gratuitas.sort()).toEqual(['nino_menor', 'visitante_especial']);
       expect(catalogos.opcionesPago.length).toBeGreaterThan(0);
       expect(catalogos.tarifas.length).toBeGreaterThan(0);
       expect(catalogos.precioTicketGuia).not.toBeNull();
     });
 
     it('expone efectivo marcado con esEfectivo (base del arqueo)', () => {
-      const efectivo = catalogos.opcionesPago.find((o: any) => o.esEfectivo === true);
+      const efectivo = catalogos.opcionesPago.find(
+        (o: any) => o.esEfectivo === true,
+      );
       expect(efectivo).toBeDefined();
     });
   });
@@ -183,7 +215,8 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
       catalogos.origenes.find((o: any) => o.codigo === codigo).id;
     const buscarTipo = (codigo: string) =>
       catalogos.tiposVisitante.find((t: any) => t.codigo === codigo).id;
-    const efectivoId = () => catalogos.opcionesPago.find((o: any) => o.esEfectivo).id;
+    const efectivoId = () =>
+      catalogos.opcionesPago.find((o: any) => o.esEfectivo).id;
 
     it('no permite emitir sin caja abierta', async () => {
       const res = await request(http)
@@ -213,7 +246,10 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
     });
 
     it('con caja abierta la reporta en el mismo envoltorio', async () => {
-      const res = await request(http).get('/cajas/actual').set(auth(tokenOk)).expect(200);
+      const res = await request(http)
+        .get('/cajas/actual')
+        .set(auth(tokenOk))
+        .expect(200);
 
       expect(res.headers['content-type']).toMatch(/application\/json/);
       expect(res.body.hayCajaAbierta).toBe(true);
@@ -317,7 +353,9 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
           idOrigen: buscarOrigen('extranjero'),
           idPais: catalogos.paises[0].id,
           idTipoRecorrido: catalogos.tiposRecorrido[0].id,
-          cantidades: [{ idTipoVisitante: buscarTipo('centro_educativo'), cantidad: 1 }],
+          cantidades: [
+            { idTipoVisitante: buscarTipo('centro_educativo'), cantidad: 1 },
+          ],
           idOpcionPago: efectivoId(),
         })
         .expect(400);
@@ -332,7 +370,9 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
           idAtraccion: buscarAtraccion(),
           idOrigen: buscarOrigen('nacional'),
           idTipoRecorrido: catalogos.tiposRecorrido[0].id,
-          cantidades: [{ idTipoVisitante: buscarTipo('nino_menor'), cantidad: 4 }],
+          cantidades: [
+            { idTipoVisitante: buscarTipo('nino_menor'), cantidad: 4 },
+          ],
           idOpcionPago: efectivoId(),
         })
         .expect(201);
@@ -378,7 +418,10 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
 
     it('anular un ticket lo saca del arqueo', async () => {
       const idMenores = ticketsCreados[ticketsCreados.length - 1];
-      await request(http).delete(`/tickets/${idMenores}`).set(auth(tokenOk)).expect(200);
+      await request(http)
+        .delete(`/tickets/${idMenores}`)
+        .set(auth(tokenOk))
+        .expect(200);
 
       // El ticket de menores costaba 0, así que el esperado no cambia.
       const arqueo = await request(http)
@@ -388,7 +431,10 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
       expect(arqueo.body.montoEsperado).toBe(660);
 
       // Y anularlo dos veces se rechaza.
-      await request(http).delete(`/tickets/${idMenores}`).set(auth(tokenOk)).expect(400);
+      await request(http)
+        .delete(`/tickets/${idMenores}`)
+        .set(auth(tokenOk))
+        .expect(400);
       ticketsCreados.pop();
     });
 
@@ -468,18 +514,21 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
   });
 
   describe('Fase 5 — seguridad', () => {
-    it.each(PAYLOADS_SQLI)('trata %s como texto literal, sin 500', async (payload) => {
-      const res = await request(http)
-        .post('/donaciones')
-        .set(auth(tokenOk))
-        .send({ monto: 1, nombreDonante: `${PREFIJO}${payload}` });
+    it.each(PAYLOADS_SQLI)(
+      'trata %s como texto literal, sin 500',
+      async (payload) => {
+        const res = await request(http)
+          .post('/donaciones')
+          .set(auth(tokenOk))
+          .send({ monto: 1, nombreDonante: `${PREFIJO}${payload}` });
 
-      expect([201, 400, 409]).toContain(res.status);
-      if (res.status === 201) {
-        expect(res.body.nombreDonante).toBe(`${PREFIJO}${payload}`);
-        donacionesCreadas.push(res.body.id);
-      }
-    });
+        expect([201, 400, 409]).toContain(res.status);
+        if (res.status === 201) {
+          expect(res.body.nombreDonante).toBe(`${PREFIJO}${payload}`);
+          donacionesCreadas.push(res.body.id);
+        }
+      },
+    );
 
     it('la BD sigue intacta tras los payloads de inyección', async () => {
       expect(await prisma.usuario.count()).toBeGreaterThan(0);
@@ -519,12 +568,19 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
         .send({
           nombreGrupo: `${PREFIJO}precio`,
           idAtraccion: catalogos.atracciones[0].id,
-          idOrigen: catalogos.origenes.find((o: any) => o.codigo === 'nacional').id,
+          idOrigen: catalogos.origenes.find((o: any) => o.codigo === 'nacional')
+            .id,
           idTipoRecorrido: catalogos.tiposRecorrido[0].id,
           cantidades: [
-            { idTipoVisitante: catalogos.tiposVisitante.find((t: any) => t.codigo === 'adulto').id, cantidad: 1 },
+            {
+              idTipoVisitante: catalogos.tiposVisitante.find(
+                (t: any) => t.codigo === 'adulto',
+              ).id,
+              cantidad: 1,
+            },
           ],
-          idOpcionPago: catalogos.opcionesPago.find((o: any) => o.esEfectivo).id,
+          idOpcionPago: catalogos.opcionesPago.find((o: any) => o.esEfectivo)
+            .id,
           montoTotal: 1,
           precio: 1,
         });
@@ -538,7 +594,10 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
     });
 
     it('devuelve 404 para un id inexistente', async () => {
-      await request(http).get('/tickets/99999999').set(auth(tokenOk)).expect(404);
+      await request(http)
+        .get('/tickets/99999999')
+        .set(auth(tokenOk))
+        .expect(404);
     });
 
     // La validación rechaza módulos no asignables Y módulos anulados: ambos
@@ -559,7 +618,10 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
     });
 
     it('la lista de módulo-acciones solo trae lo asignable', async () => {
-      const res = await request(http).get('/modulo-acciones').set(auth(tokenOk)).expect(200);
+      const res = await request(http)
+        .get('/modulo-acciones')
+        .set(auth(tokenOk))
+        .expect(200);
 
       expect(res.body.length).toBeGreaterThan(0);
       for (const ma of res.body) {
@@ -609,7 +671,10 @@ describe('Circuito de dinero: Cajas + Tickets + Donaciones (e2e)', () => {
     });
 
     it('impide anular la apertura de una caja cerrada (400)', async () => {
-      await request(http).delete(`/cajas/${idCaja}`).set(auth(tokenOk)).expect(400);
+      await request(http)
+        .delete(`/cajas/${idCaja}`)
+        .set(auth(tokenOk))
+        .expect(400);
     });
 
     it('no permite registrar donaciones con la caja cerrada (400)', async () => {

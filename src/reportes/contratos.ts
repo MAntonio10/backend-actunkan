@@ -129,8 +129,13 @@ export interface EsquemaFiltro {
   clave: string;
   etiqueta: string;
   tipo: TipoFiltro;
-  /** Se envía a la IA para que sepa qué puede pedir. */
+  /**
+   * Ayuda del filtro, **escrita para la persona**: el frontend la pinta junto al
+   * control. Va también en el prompt, así que tiene que servir a las dos.
+   */
   descripcion: string;
+  /** Vocabulario y reglas que solo le sirven al modelo. Ver `pistasIa` abajo. */
+  pistasIa?: string;
   requerido?: boolean;
   /**
    * Valores admitidos cuando el filtro es una lista cerrada (`tipo: 'opciones'`).
@@ -152,7 +157,7 @@ export interface FiltrosResueltos {
   desdeIso: string;
   hastaIso: string;
   /**
-   * Los filtros en texto legible, ya con los nombres resueltos ("Vendedor: Juan Pérez").
+   * Los filtros en texto legible, ya con los nombres resueltos ("Colaborador: Juan Pérez").
    * Los arma el resolutor, que es quien tradujo los ids, y se imprimen en el encabezado
    * de los tres formatos: un reporte sin constancia de sus filtros no es auditable.
    */
@@ -210,8 +215,23 @@ export interface DefinicionReporte {
   /** Identificador estable, en kebab-case. Es lo que viaja en la URL. */
   clave: string;
   titulo: string;
-  /** Se envía a la IA: de esta frase depende que acierte al elegir el reporte. */
+  /**
+   * Para qué sirve el reporte, **escrito para la persona**: el frontend lo pinta en
+   * la tarjeta del catálogo, recortado a dos líneas. Va también en el prompt.
+   */
   descripcion: string;
+  /**
+   * Lo que solo le sirve al modelo: sinónimos, cuándo preferir este reporte sobre
+   * otro, nombres de claves que debe emitir.
+   *
+   * Existe porque `descripcion` hacía doble trabajo. Toda pista escrita para el
+   * intérprete terminaba pintada en la tarjeta, donde a una persona le estorba:
+   * un sinónimo entre paréntesis, o un párrafo de desempate recortado a dos líneas
+   * que no alcanza a decir nada. Este campo va al prompt y **no** sale en la
+   * respuesta de `GET /reportes`: `listarCatalogo` lo quita antes de responder,
+   * así que el frontend no puede pintarlo ni por descuido.
+   */
+  pistasIa?: string;
   categoria: CategoriaReporte;
   /**
    * Permiso del módulo **dueño de los datos**, no de 'Reportes'.

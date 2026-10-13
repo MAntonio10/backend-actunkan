@@ -21,7 +21,9 @@ const ticketBase = (extra: any = {}) => ({
 /** El ancho del PDF viene declarado en el MediaBox. */
 const medidas = (pdf: Buffer) => {
   const texto = pdf.toString('latin1');
-  const m = texto.match(/MediaBox\s*\[\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/)!;
+  const m = texto.match(
+    /MediaBox\s*\[\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/,
+  )!;
   return { ancho: parseFloat(m[3]), alto: parseFloat(m[4]) };
 };
 
@@ -62,7 +64,10 @@ describe('TicketPdfService', () => {
     const nacional = medidas(await service.generar(ticketBase()));
     const extranjero = medidas(
       await service.generar(
-        ticketBase({ origen: { nombre: 'Extranjero' }, pais: { nombre: 'España' } }),
+        ticketBase({
+          origen: { nombre: 'Extranjero' },
+          pais: { nombre: 'España' },
+        }),
       ),
     );
 
@@ -84,8 +89,16 @@ describe('TicketPdfService', () => {
           cantidadPersonas: 5,
           montoTotal: '70.0000',
           visitantePorTickets: [
-            { cantidad: 2, subtotal: '40', tipoVisitantes: { nombre: 'Adulto' } },
-            { cantidad: 3, subtotal: '30', tipoVisitantes: { nombre: 'Niño (7 años o más)' } },
+            {
+              cantidad: 2,
+              subtotal: '40',
+              tipoVisitantes: { nombre: 'Adulto' },
+            },
+            {
+              cantidad: 3,
+              subtotal: '30',
+              tipoVisitantes: { nombre: 'Niño (7 años o más)' },
+            },
           ],
         }),
       ),
@@ -99,8 +112,16 @@ describe('TicketPdfService', () => {
       await service.generar(
         ticketBase({
           visitantePorTickets: [
-            { cantidad: 1, subtotal: '20', tipoVisitantes: { nombre: 'Adulto' } },
-            { cantidad: 0, subtotal: '0', tipoVisitantes: { nombre: 'Niño menor de 7 años' } },
+            {
+              cantidad: 1,
+              subtotal: '20',
+              tipoVisitantes: { nombre: 'Adulto' },
+            },
+            {
+              cantidad: 0,
+              subtotal: '0',
+              tipoVisitantes: { nombre: 'Niño menor de 7 años' },
+            },
           ],
         }),
       ),
@@ -109,7 +130,11 @@ describe('TicketPdfService', () => {
       await service.generar(
         ticketBase({
           visitantePorTickets: [
-            { cantidad: 1, subtotal: '20', tipoVisitantes: { nombre: 'Adulto' } },
+            {
+              cantidad: 1,
+              subtotal: '20',
+              tipoVisitantes: { nombre: 'Adulto' },
+            },
           ],
         }),
       ),
@@ -128,14 +153,20 @@ describe('TicketPdfService', () => {
 
   it('genera el pase del guía sin fallar', async () => {
     const pdf = await service.generar(
-      ticketBase({ tipoTicket: 'GUIA', nombre: "Pedro Ak'abal", montoTotal: '15.0000' }),
+      ticketBase({
+        tipoTicket: 'GUIA',
+        nombre: "Pedro Ak'abal",
+        montoTotal: '15.0000',
+      }),
     );
 
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
   });
 
   it('funciona aunque el ticket no traiga atracción ni origen', async () => {
-    const pdf = await service.generar(ticketBase({ atraccion: null, origen: null }));
+    const pdf = await service.generar(
+      ticketBase({ atraccion: null, origen: null }),
+    );
 
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
   });
@@ -220,7 +251,9 @@ describe('TicketPdfService', () => {
      */
     it('reserva el espacio de la insignia de anulado', async () => {
       const vigente = await service.generar(
-        ticketBase({ ticketPagos: [{ anulado: false, estadoPago: 'PENDIENTE' }] }),
+        ticketBase({
+          ticketPagos: [{ anulado: false, estadoPago: 'PENDIENTE' }],
+        }),
       );
       const anulado = await service.generar(anuladoConTarjeta());
 
@@ -251,7 +284,9 @@ describe('TicketPdfService', () => {
       const spy = jest.spyOn<any, any>(service, 'caja');
 
       await service.generar(
-        ticketBase({ ticketPagos: [{ anulado: false, estadoPago: 'PENDIENTE' }] }),
+        ticketBase({
+          ticketPagos: [{ anulado: false, estadoPago: 'PENDIENTE' }],
+        }),
       );
 
       expect(spy).toHaveBeenCalledWith(

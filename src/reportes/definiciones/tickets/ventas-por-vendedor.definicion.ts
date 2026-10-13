@@ -14,12 +14,17 @@ import { seccionPorDimension } from './seccion-dimension';
  * ticket, no una entidad aparte.
  */
 export const ventasPorVendedor: DefinicionReporte = {
+  // La clave no cambia: viaja en la URL del reporte y queda escrita en la bitácora
+  // de cada generación y exportación, que es registro de auditoría.
   clave: 'ventas-por-vendedor',
-  titulo: 'Ventas por vendedor',
+  titulo: 'Recaudación por colaborador',
   descripcion:
-    'Cuánto vendió cada cajero o vendedor en el período: tickets emitidos, personas ' +
-    'atendidas, total recaudado y qué porcentaje del total representa. Sirve para ' +
-    'comparar el desempeño entre quienes atienden taquilla.',
+    'Cuánto vendió cada colaborador: tickets, personas atendidas, total y qué ' +
+    'porcentaje representa.',
+  pistasIa:
+    'Sirve para comparar el desempeño entre quienes atienden taquilla. Al ' +
+    'colaborador se le decía «vendedor»: «ventas por vendedor» y «recaudación por ' +
+    'colaborador» piden este mismo reporte.',
   categoria: 'Tickets',
   moduloOrigen: 'EmisionTickets',
   orientacionSugerida: 'vertical',
@@ -32,13 +37,13 @@ export const ventasPorVendedor: DefinicionReporte = {
     ]);
 
     return {
-      titulo: 'Ventas por vendedor',
+      titulo: 'Recaudación por colaborador',
       periodo: periodoDe(filtros),
       filtrosAplicados: filtros.aplicados,
       kpis: [
         kpiMoneda('Recaudado', metricas.recaudado),
         kpiEntero('Tickets emitidos', metricas.tickets),
-        kpiEntero('Vendedores', seccion.filas.length),
+        kpiEntero('Colaboradores', seccion.filas.length),
         kpiMoneda('Ticket promedio', metricas.ticketPromedio),
       ],
       secciones: [seccion],

@@ -100,9 +100,12 @@ export class DashboardService {
   }
 
   /** Los puntos van en número: es para dibujar, no para cuadrar cuentas. */
-  private aPunto(etiqueta: string, valor: Prisma.Decimal | number, clave?: string): PuntoSerie {
-    const numero =
-      typeof valor === 'number' ? valor : Number(valor.toFixed(2));
+  private aPunto(
+    etiqueta: string,
+    valor: Prisma.Decimal | number,
+    clave?: string,
+  ): PuntoSerie {
+    const numero = typeof valor === 'number' ? valor : Number(valor.toFixed(2));
     return { etiqueta, valor: numero, ...(clave ? { clave } : {}) };
   }
 
@@ -152,7 +155,11 @@ export class DashboardService {
     const fraccion = a.minus(b).div(b);
     return {
       porcentaje: Number(fraccion.toFixed(4)),
-      direccion: fraccion.isZero() ? 'igual' : fraccion.isPositive() ? 'sube' : 'baja',
+      direccion: fraccion.isZero()
+        ? 'igual'
+        : fraccion.isPositive()
+          ? 'sube'
+          : 'baja',
       etiqueta: `vs. ${etiquetaAnterior}`,
     };
   }
@@ -194,7 +201,9 @@ export class DashboardService {
       new Prisma.Decimal(0),
     );
 
-    const visibles = opciones.tope ? ordenadas.slice(0, opciones.tope) : ordenadas;
+    const visibles = opciones.tope
+      ? ordenadas.slice(0, opciones.tope)
+      : ordenadas;
 
     return {
       clave: opciones.clave,
@@ -202,7 +211,11 @@ export class DashboardService {
       descripcion: opciones.descripcion,
       tipoSugerido: opciones.tipoSugerido,
       formato: esDinero ? 'moneda' : 'entero',
-      unidad: esDinero ? 'Recaudado' : metrica === 'tickets' ? 'Tickets' : 'Personas',
+      unidad: esDinero
+        ? 'Recaudado'
+        : metrica === 'tickets'
+          ? 'Tickets'
+          : 'Personas',
       puntos: visibles.map((fila) =>
         this.aPunto(fila.grupo1, valorDe(fila), fila.orden1),
       ),
@@ -226,8 +239,8 @@ export class DashboardService {
     const grano = granoPedido ?? this.granoPara(filtros);
     const omitidos: Dashboard['omitidos'] = [];
     const [puedeTickets, puedeDonaciones] = await Promise.all([
-      this.tienePermiso(ejecutor.id!, 'EmisionTickets', 'Ver'),
-      this.tienePermiso(ejecutor.id!, 'Donaciones', 'Ver'),
+      this.tienePermiso(ejecutor.id, 'EmisionTickets', 'Ver'),
+      this.tienePermiso(ejecutor.id, 'Donaciones', 'Ver'),
     ]);
 
     const anterior = this.periodoAnterior(filtros);
@@ -237,7 +250,7 @@ export class DashboardService {
 
     if (!puedeTickets) {
       omitidos.push({
-        panel: 'Ventas',
+        panel: 'Recaudación',
         motivo: 'Necesita el permiso Ver del módulo EmisionTickets.',
       });
     } else {
@@ -343,7 +356,9 @@ export class DashboardService {
           puntos: enOrden.map((fila) =>
             this.aPunto(fila.grupo1, fila.tickets, fila.orden1),
           ),
-          total: this.entero(enOrden.reduce((suma, fila) => suma + fila.tickets, 0)),
+          total: this.entero(
+            enOrden.reduce((suma, fila) => suma + fila.tickets, 0),
+          ),
           urlDetalle: `${detalleTemporal}&metrica=tickets`,
         },
         {
@@ -382,8 +397,10 @@ export class DashboardService {
           urlDetalle: `/reportes/ventas-por-origen?${query}`,
         }),
         this.seriePorDimension({
+          // `top-vendedores` es contrato: el panel del frontend elige la serie por
+          // esta clave. Solo cambia el título, que es lo que se lee en la gráfica.
           clave: 'top-vendedores',
-          titulo: 'Vendedores que más recaudaron',
+          titulo: 'Colaboradores que más recaudaron',
           dimension: 'vendedor',
           filtros,
           tipoSugerido: 'barra',
@@ -499,7 +516,9 @@ export class DashboardService {
   private async donacionesEnElTiempo(
     f: FiltrosResueltos,
     grano: GranoTemporal,
-  ): Promise<Array<{ clave: string; etiqueta: string; total: Prisma.Decimal }>> {
+  ): Promise<
+    Array<{ clave: string; etiqueta: string; total: Prisma.Decimal }>
+  > {
     const dimension = DIMENSIONES_TIEMPO[grano];
 
     const filas = await this.prisma.$queryRaw<

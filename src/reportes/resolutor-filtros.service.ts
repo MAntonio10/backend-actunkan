@@ -338,7 +338,10 @@ export class ResolutorFiltrosService {
         keyof FiltrosResueltos,
       ]
     > = [
-      [dto.vendedor, 'Vendedor', (v) => this.resolverUsuario(v), 'idUsuario'],
+      // La etiqueta es lo que se imprime en el encabezado de filtros del PDF, el
+      // Excel y el JSON («Colaborador: Juan Pérez»); `dto.vendedor` es la clave
+      // del contrato y no cambia.
+      [dto.vendedor, 'Colaborador', (v) => this.resolverUsuario(v), 'idUsuario'],
       [
         dto.atraccion,
         'Atracción',

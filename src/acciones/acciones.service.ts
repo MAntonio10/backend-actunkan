@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { CreateAccionDto } from './dto/create-accion.dto';
@@ -61,17 +65,25 @@ export class AccionesService {
     });
 
     if (!accion) {
-      throw new NotFoundException(`No se encontró la acción solicitada con el ID ${id}.`);
+      throw new NotFoundException(
+        `No se encontró la acción solicitada con el ID ${id}.`,
+      );
     }
 
     return accion;
   }
 
-  async update(id: number, updateAccionDto: UpdateAccionDto, ejecutor?: EjecutorInfo) {
+  async update(
+    id: number,
+    updateAccionDto: UpdateAccionDto,
+    ejecutor?: EjecutorInfo,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const accion = await tx.accion.findUnique({ where: { id } });
       if (!accion) {
-        throw new NotFoundException(`No se encontró la acción solicitada con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró la acción solicitada con el ID ${id}.`,
+        );
       }
 
       if (updateAccionDto.nombre) {
@@ -113,7 +125,9 @@ export class AccionesService {
     return this.prisma.$transaction(async (tx) => {
       const accion = await tx.accion.findUnique({ where: { id } });
       if (!accion) {
-        throw new NotFoundException(`No se encontró la acción solicitada con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró la acción solicitada con el ID ${id}.`,
+        );
       }
 
       const moduloAcciones = await tx.moduloAccion.findMany({

@@ -17,11 +17,13 @@ import { seccionPorDimension } from './seccion-dimension';
  */
 export const ventasPorOrigen: DefinicionReporte = {
   clave: 'ventas-por-origen',
-  titulo: 'Ventas por origen del visitante',
+  titulo: 'Recaudación por origen del visitante',
   descripcion:
-    'Reparto entre visitantes nacionales y extranjeros durante el período, con un segundo ' +
-    'desglose por país de procedencia. Responde a preguntas sobre nacionalidad, ' +
-    'procedencia, turismo extranjero o de qué países vienen los visitantes.',
+    'Reparto entre visitantes nacionales y extranjeros, con un segundo desglose por ' +
+    'país de procedencia.',
+  pistasIa:
+    'Responde a preguntas sobre nacionalidad, procedencia, turismo extranjero o de ' +
+    'qué países vienen los visitantes.',
   categoria: 'Tickets',
   moduloOrigen: 'EmisionTickets',
   orientacionSugerida: 'vertical',
@@ -35,7 +37,7 @@ export const ventasPorOrigen: DefinicionReporte = {
     ]);
 
     return {
-      titulo: 'Ventas por origen del visitante',
+      titulo: 'Recaudación por origen del visitante',
       periodo: periodoDe(filtros),
       filtrosAplicados: filtros.aplicados,
       kpis: [
@@ -51,7 +53,7 @@ export const ventasPorOrigen: DefinicionReporte = {
       orientacion: 'vertical',
       notas: [
         NOTA_ANULADOS,
-        'Las ventas nacionales no llevan país registrado y aparecen agrupadas bajo ' +
+        'La recaudación nacional no lleva país registrado y aparece agrupada bajo ' +
           '"Nacional / sin país" en el segundo desglose.',
       ],
     };

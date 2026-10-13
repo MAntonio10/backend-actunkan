@@ -34,8 +34,7 @@ export class InterpretarReporteDto {
   // el mínimo y se iba a interpretar. Una petición sin una sola letra no
   // describe ningún reporte.
   @Matches(/\p{L}/u, {
-    message:
-      'La instrucción debe describir con palabras qué reporte necesita.',
+    message: 'La instrucción debe describir con palabras qué reporte necesita.',
   })
   instruccion: string;
 }

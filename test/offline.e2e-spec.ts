@@ -82,7 +82,9 @@ describe('Circuito offline (integración)', () => {
 
     catalogo = { atraccion, origen, recorrido, tipoVisitante };
 
-    moduloApp = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    moduloApp = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
     offline = moduloApp.get(OfflineService);
     cajas = moduloApp.get(CajasService);
     auth = moduloApp.get(AuthService);
@@ -95,7 +97,10 @@ describe('Circuito offline (integración)', () => {
     });
 
     for (const t of tickets) {
-      await prisma.ticketPago.updateMany({ where: { idTicket: t.id }, data: { anulado: true } });
+      await prisma.ticketPago.updateMany({
+        where: { idTicket: t.id },
+        data: { anulado: true },
+      });
     }
     await prisma.ticket.updateMany({
       where: { idAperturaCaja: { in: cajasCreadas } },
@@ -103,7 +108,9 @@ describe('Circuito offline (integración)', () => {
     });
 
     for (const idLote of lotesCreados) {
-      const lote = await prisma.loteOffline.findUnique({ where: { id: idLote } });
+      const lote = await prisma.loteOffline.findUnique({
+        where: { id: idLote },
+      });
       if (lote && lote.estado === 'ACTIVO') {
         await prisma.loteOffline.update({
           where: { id: idLote },
@@ -146,7 +153,10 @@ describe('Circuito offline (integración)', () => {
   });
 
   const reservar = async (cantidad: number, dispositivo = DISPOSITIVO) => {
-    const lote = await offline.reservar({ cantidad, idDispositivo: dispositivo }, EJECUTOR);
+    const lote = await offline.reservar(
+      { cantidad, idDispositivo: dispositivo },
+      EJECUTOR,
+    );
     lotesCreados.push(lote.idLote);
     return lote;
   };
@@ -178,7 +188,9 @@ describe('Circuito offline (integración)', () => {
       const lote = await reservar(2, `${DISPOSITIVO}-c`);
 
       const choques = await prisma.ticket.count({
-        where: { numeroTicket: { in: lote.folios.map((f: any) => f.numeroTicket) } },
+        where: {
+          numeroTicket: { in: lote.folios.map((f: any) => f.numeroTicket) },
+        },
       });
       expect(choques).toBe(0);
     });
@@ -189,7 +201,9 @@ describe('Circuito offline (integración)', () => {
 
       await expect(
         offline.reservar({ cantidad: 1, idDispositivo: dispositivo }, EJECUTOR),
-      ).rejects.toMatchObject({ response: { codigo: 'LOTE_ACTIVO_EXISTENTE' } });
+      ).rejects.toMatchObject({
+        response: { codigo: 'LOTE_ACTIVO_EXISTENTE' },
+      });
     });
   });
 
@@ -210,7 +224,10 @@ describe('Circuito offline (integración)', () => {
       const dispositivo = `${DISPOSITIVO}-ajeno`;
       await reservar(1, dispositivo);
 
-      const otro = await offline.obtenerActivo(dispositivo, { id: 4, email: 'otro@test.com' });
+      const otro = await offline.obtenerActivo(dispositivo, {
+        id: 4,
+        email: 'otro@test.com',
+      });
 
       expect(otro.hayLoteActivo).toBe(false);
     });
@@ -222,7 +239,10 @@ describe('Circuito offline (integración)', () => {
       const folio = lote.folios[0];
 
       const res = await offline.emitirOffline(
-        { idLote: lote.idLote, ventas: [venta({ numeroTicket: folio.numeroTicket })] },
+        {
+          idLote: lote.idLote,
+          ventas: [venta({ numeroTicket: folio.numeroTicket })],
+        },
         EJECUTOR,
       );
 
@@ -275,14 +295,21 @@ describe('Circuito offline (integración)', () => {
         {
           idLote: lote.idLote,
           ventas: [
-            venta({ numeroTicket: lote.folios[0].numeroTicket, idOpcionPago: TARJETA }),
+            venta({
+              numeroTicket: lote.folios[0].numeroTicket,
+              idOpcionPago: TARJETA,
+            }),
           ],
         },
         EJECUTOR,
       );
 
       expect(res.resultados[0].codigo).toBe('PAGO_NO_EFECTIVO');
-      expect(await prisma.ticket.count({ where: { numeroTicket: lote.folios[0].numeroTicket } })).toBe(0);
+      expect(
+        await prisma.ticket.count({
+          where: { numeroTicket: lote.folios[0].numeroTicket },
+        }),
+      ).toBe(0);
     });
 
     it('rechaza un folio de otro lote sin frenar el resto', async () => {
@@ -312,7 +339,12 @@ describe('Circuito offline (integración)', () => {
       await offline.emitirOffline(
         {
           idLote: lote.idLote,
-          ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket, fechaEmision: futuro })],
+          ventas: [
+            venta({
+              numeroTicket: lote.folios[0].numeroTicket,
+              fechaEmision: futuro,
+            }),
+          ],
         },
         EJECUTOR,
       );
@@ -331,7 +363,12 @@ describe('Circuito offline (integración)', () => {
       const res = await offline.emitirOffline(
         {
           idLote: lote.idLote,
-          ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket, montoCobrado: '5.00' })],
+          ventas: [
+            venta({
+              numeroTicket: lote.folios[0].numeroTicket,
+              montoCobrado: '5.00',
+            }),
+          ],
         },
         EJECUTOR,
       );
@@ -355,7 +392,9 @@ describe('Circuito offline (integración)', () => {
      */
     it('con guía sin carnet, el monto se reparte y el arqueo no cuenta doble', async () => {
       const lote = await reservar(2, `${DISPOSITIVO}-guia`);
-      const guia = await prisma.tarifaGuia.findFirst({ where: { vigenteHasta: null } });
+      const guia = await prisma.tarifaGuia.findFirst({
+        where: { vigenteHasta: null },
+      });
       const precioGuia = Number(guia!.precio);
 
       const tarifaAdulto = await prisma.tarifa.findFirst({
@@ -388,7 +427,11 @@ describe('Circuito offline (integración)', () => {
               numeroTicket: lote.folios[0].numeroTicket,
               numeroTicketGuia: lote.folios[1].numeroTicket,
               montoCobrado: total.toFixed(2),
-              guia: { modo: 'nuevo', nombre: `${ETIQUETA} Pedro`, tieneCarnet: false },
+              guia: {
+                modo: 'nuevo',
+                nombre: `${ETIQUETA} Pedro`,
+                tieneCarnet: false,
+              },
             }),
           ],
         },
@@ -420,7 +463,9 @@ describe('Circuito offline (integración)', () => {
         },
       });
 
-      expect(Number(despues._sum.monto) - Number(antes._sum.monto ?? 0)).toBe(total);
+      expect(Number(despues._sum.monto) - Number(antes._sum.monto ?? 0)).toBe(
+        total,
+      );
     });
 
     it('la venta suma al arqueo de la caja del lote', async () => {
@@ -438,7 +483,12 @@ describe('Circuito offline (integración)', () => {
       await offline.emitirOffline(
         {
           idLote: lote.idLote,
-          ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket, montoCobrado: '33.00' })],
+          ventas: [
+            venta({
+              numeroTicket: lote.folios[0].numeroTicket,
+              montoCobrado: '33.00',
+            }),
+          ],
         },
         EJECUTOR,
       );
@@ -453,7 +503,9 @@ describe('Circuito offline (integración)', () => {
         },
       });
 
-      expect(Number(despues._sum.monto) - Number(antes._sum.monto ?? 0)).toBe(33);
+      expect(Number(despues._sum.monto) - Number(antes._sum.monto ?? 0)).toBe(
+        33,
+      );
     });
   });
 
@@ -461,7 +513,10 @@ describe('Circuito offline (integración)', () => {
     it('los folios sin vender pasan a NO_UTILIZADO y el lote queda cerrado', async () => {
       const lote = await reservar(3, `${DISPOSITIVO}-c1`);
       await offline.emitirOffline(
-        { idLote: lote.idLote, ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket })] },
+        {
+          idLote: lote.idLote,
+          ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket })],
+        },
         EJECUTOR,
       );
 
@@ -488,7 +543,9 @@ describe('Circuito offline (integración)', () => {
 
       expect(res.estado).toBe('CONCILIADO');
       expect(res.advertencias).toHaveLength(1);
-      expect(res.advertencias[0].numeroTicket).toBe(lote.folios[0].numeroTicket);
+      expect(res.advertencias[0].numeroTicket).toBe(
+        lote.folios[0].numeroTicket,
+      );
     });
 
     it('conciliado el lote, sus folios ya no pueden emitirse', async () => {
@@ -496,7 +553,10 @@ describe('Circuito offline (integración)', () => {
       await offline.conciliar(lote.idLote, {}, EJECUTOR);
 
       const res = await offline.emitirOffline(
-        { idLote: lote.idLote, ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket })] },
+        {
+          idLote: lote.idLote,
+          ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket })],
+        },
         EJECUTOR,
       );
 
@@ -512,7 +572,10 @@ describe('Circuito offline (integración)', () => {
       expect(res.foliosInvalidados).toBe(2);
 
       const subida = await offline.emitirOffline(
-        { idLote: lote.idLote, ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket })] },
+        {
+          idLote: lote.idLote,
+          ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket })],
+        },
         EJECUTOR,
       );
       expect(subida.resultados[0].codigo).toBe('LOTE_INVALIDADO');
@@ -521,7 +584,10 @@ describe('Circuito offline (integración)', () => {
     it('no toca las ventas ya registradas', async () => {
       const lote = await reservar(2, `${DISPOSITIVO}-i2`);
       await offline.emitirOffline(
-        { idLote: lote.idLote, ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket })] },
+        {
+          idLote: lote.idLote,
+          ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket })],
+        },
         EJECUTOR,
       );
 
@@ -587,11 +653,19 @@ describe('Circuito offline (integración)', () => {
       const caja = await abrirCajaPropia();
       const lote = await loteEn(caja.id);
 
-      await expect(cajas.cerrarCaja(caja.id, { montoContado: 50 }, EJECUTOR)).rejects.toMatchObject(
-        { response: { codigo: 'LOTE_OFFLINE_PENDIENTE', idLote: lote.id, foliosReservados: 1 } },
-      );
+      await expect(
+        cajas.cerrarCaja(caja.id, { montoContado: 50 }, EJECUTOR),
+      ).rejects.toMatchObject({
+        response: {
+          codigo: 'LOTE_OFFLINE_PENDIENTE',
+          idLote: lote.id,
+          foliosReservados: 1,
+        },
+      });
 
-      const sigueAbierta = await prisma.aperturaCaja.findUnique({ where: { id: caja.id } });
+      const sigueAbierta = await prisma.aperturaCaja.findUnique({
+        where: { id: caja.id },
+      });
       expect(sigueAbierta!.idEstado).toBe(1);
     });
 
@@ -600,7 +674,11 @@ describe('Circuito offline (integración)', () => {
       const lote = await loteEn(caja.id);
 
       await offline.conciliar(lote.id, {}, EJECUTOR);
-      const res = await cajas.cerrarCaja(caja.id, { montoContado: 50 }, EJECUTOR);
+      const res = await cajas.cerrarCaja(
+        caja.id,
+        { montoContado: 50 },
+        EJECUTOR,
+      );
 
       expect(res.cierre).toBeDefined();
     });
@@ -628,11 +706,15 @@ describe('Circuito offline (integración)', () => {
         cajas.cerrarCaja(caja.id, { montoContado: 50 }, EJECUTOR),
       ).resolves.toBeDefined();
 
-      const cerrado = await prisma.loteOffline.findUnique({ where: { id: lote.id } });
+      const cerrado = await prisma.loteOffline.findUnique({
+        where: { id: lote.id },
+      });
       expect(cerrado!.estado).toBe('CONCILIADO');
       expect(cerrado!.fechaConciliacion).not.toBeNull();
 
-      const folios = await prisma.folioReservado.findMany({ where: { idLote: lote.id } });
+      const folios = await prisma.folioReservado.findMany({
+        where: { idLote: lote.id },
+      });
       expect(folios.every((f) => f.estado === 'NO_UTILIZADO')).toBe(true);
     });
 
@@ -650,10 +732,14 @@ describe('Circuito offline (integración)', () => {
 
       expect(nuevo.idLote).not.toBe(viejo.idLote);
 
-      const cerrado = await prisma.loteOffline.findUnique({ where: { id: viejo.idLote } });
+      const cerrado = await prisma.loteOffline.findUnique({
+        where: { id: viejo.idLote },
+      });
       expect(cerrado!.estado).toBe('CONCILIADO');
 
-      const folios = await prisma.folioReservado.findMany({ where: { idLote: viejo.idLote } });
+      const folios = await prisma.folioReservado.findMany({
+        where: { idLote: viejo.idLote },
+      });
       expect(folios.every((f) => f.estado === 'NO_UTILIZADO')).toBe(true);
     });
 
@@ -667,10 +753,14 @@ describe('Circuito offline (integración)', () => {
         EJECUTOR,
       );
 
-      const invalidado = await prisma.loteOffline.findUnique({ where: { id: lote.id } });
+      const invalidado = await prisma.loteOffline.findUnique({
+        where: { id: lote.id },
+      });
       expect(invalidado!.estado).toBe('INVALIDADO');
 
-      const folios = await prisma.folioReservado.findMany({ where: { idLote: lote.id } });
+      const folios = await prisma.folioReservado.findMany({
+        where: { idLote: lote.id },
+      });
       expect(folios.every((f) => f.estado === 'INVALIDADO')).toBe(true);
     });
   });
@@ -684,7 +774,12 @@ describe('Circuito offline (integración)', () => {
       await offline.emitirOffline(
         {
           idLote: lote.idLote,
-          ventas: [venta({ numeroTicket: lote.folios[0].numeroTicket, montoCobrado: '7.00' })],
+          ventas: [
+            venta({
+              numeroTicket: lote.folios[0].numeroTicket,
+              montoCobrado: '7.00',
+            }),
+          ],
         },
         EJECUTOR,
       );
@@ -712,7 +807,10 @@ describe('Circuito offline (integración)', () => {
     const darDeBaja = async (id: number) => {
       await prisma.usuario.update({ where: { id }, data: { anulado: true } });
       return async () => {
-        await prisma.usuario.update({ where: { id }, data: { anulado: false } });
+        await prisma.usuario.update({
+          where: { id },
+          data: { anulado: false },
+        });
       };
     };
 
@@ -779,14 +877,18 @@ describe('Circuito offline (integración)', () => {
       const restituir = await darDeBaja(idUsuarioBaja);
 
       try {
-        await expect(auth.refrescar(token, {})).rejects.toThrow(/deshabilitado/i);
+        await expect(auth.refrescar(token, {})).rejects.toThrow(
+          /deshabilitado/i,
+        );
       } finally {
         await restituir();
       }
     });
 
     it('el usuario vuelve a quedar activo después de las pruebas', async () => {
-      const usuario = await prisma.usuario.findUnique({ where: { id: idUsuarioBaja } });
+      const usuario = await prisma.usuario.findUnique({
+        where: { id: idUsuarioBaja },
+      });
       expect(usuario!.anulado).toBe(false);
     });
   });

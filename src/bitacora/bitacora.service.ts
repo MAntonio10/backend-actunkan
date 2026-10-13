@@ -23,10 +23,7 @@ export class BitacoraService {
   /**
    * Helper transaccional reutilizable para registrar en la Bitácora dentro de una transacción Prisma.
    */
-  static async registrarEnTransaccion(
-    tx: any,
-    datos: RegistrarBitacoraParams,
-  ) {
+  static async registrarEnTransaccion(tx: any, datos: RegistrarBitacoraParams) {
     return tx.bitacora.create({
       data: {
         idUsuario: datos.idUsuario ?? null,
@@ -56,7 +53,8 @@ export class BitacoraService {
   }
 
   /**
-   * Listado de auditoría, del más reciente al más antiguo, paginado.
+   * Listado de auditoría paginado, del más reciente al más antiguo salvo que se
+   * pida al revés.
    *
    * Antes topaba en 100 registros con un `take` suelto y no había forma de pedir
    * los siguientes: los más viejos quedaban fuera de alcance por la API. Es la
@@ -64,7 +62,9 @@ export class BitacoraService {
    * `total` del filtro completo.
    */
   async findAll(queryDto?: QueryBitacoraDto) {
-    const { idUsuario, modulo, accion, fechaInicio, fechaFin } = queryDto || {};
+    const { buscar, idUsuario, modulo, accion, fechaInicio, fechaFin } =
+      queryDto || {};
+    const orden = queryDto?.orden === 'asc' ? 'asc' : 'desc';
     const paginacion = resolverPaginacion(queryDto, PAGINACION_BITACORA);
 
     const where: any = {};
@@ -79,6 +79,19 @@ export class BitacoraService {
 
     if (accion) {
       where.accion = { contains: accion };
+    }
+
+    // Los mismos campos que el buscador mostraba en pantalla, para que no deje de
+    // encontrar nada al mudarse al servidor. Convive con los filtros de arriba:
+    // `?modulo=Cajas&buscar=anular` exige las dos cosas, no una u otra.
+    if (buscar) {
+      where.OR = [
+        { descripcion: { contains: buscar } },
+        { accion: { contains: buscar } },
+        { modulo: { contains: buscar } },
+        { usuarioNombre: { contains: buscar } },
+        { usuario: { correo: { contains: buscar } } },
+      ];
     }
 
     if (fechaInicio || fechaFin) {
@@ -98,7 +111,9 @@ export class BitacoraService {
         // varias filas en el mismo segundo y SQL Server resuelve `skip`/`take` con
         // OFFSET..FETCH, que sobre una clave repetida no garantiza un orden estable
         // entre páginas: un registro podría salir dos veces o no salir nunca.
-        orderBy: [{ fecha: 'desc' }, { id: 'desc' }],
+        // El desempate va en el MISMO sentido que la fecha: con `asc` un `id: 'desc'`
+        // fijo partiría cada segundo repetido por la mitad al revés del resto.
+        orderBy: [{ fecha: orden }, { id: orden }],
         skip: paginacion.skip,
         take: paginacion.take,
         include: {
@@ -147,7 +162,9 @@ export class BitacoraService {
     });
 
     if (!registro) {
-      throw new NotFoundException(`No se encontró el registro de bitácora con ID ${id}.`);
+      throw new NotFoundException(
+        `No se encontró el registro de bitácora con ID ${id}.`,
+      );
     }
 
     return registro;

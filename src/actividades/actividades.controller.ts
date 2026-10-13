@@ -18,7 +18,10 @@ import type { Response } from 'express';
 import { createReadStream } from 'fs';
 import { ActividadesService } from './actividades.service';
 import { TAMANO_MAXIMO_BYTES } from './almacenamiento-imagenes.service';
-import { ActualizarActividadDto, CrearActividadDto } from './dto/crear-actividad.dto';
+import {
+  ActualizarActividadDto,
+  CrearActividadDto,
+} from './dto/crear-actividad.dto';
 import { QueryActividadDto } from './dto/query-actividad.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { obtenerEjecutor } from '../common/utils/ejecutor.util';
@@ -86,13 +89,19 @@ export class ActividadesController {
    */
   @Post(':id/imagenes')
   @RequirePermission('ActividadesParque', 'Editar')
-  @UseInterceptors(FileInterceptor('imagen', { limits: { fileSize: TAMANO_MAXIMO_BYTES } }))
+  @UseInterceptors(
+    FileInterceptor('imagen', { limits: { fileSize: TAMANO_MAXIMO_BYTES } }),
+  )
   agregarImagen(
     @Param('id', ParseIntPipe) id: number,
     @UploadedFile() imagen: any,
     @Request() req: any,
   ) {
-    return this.actividadesService.agregarImagen(id, imagen, obtenerEjecutor(req));
+    return this.actividadesService.agregarImagen(
+      id,
+      imagen,
+      obtenerEjecutor(req),
+    );
   }
 
   /**
@@ -107,11 +116,12 @@ export class ActividadesController {
     @Request() req: any,
     @Res() res: Response,
   ) {
-    const { imagen, ruta } = await this.actividadesService.obtenerImagenParaDescarga(
-      id,
-      idImagen,
-      obtenerEjecutor(req)?.id,
-    );
+    const { imagen, ruta } =
+      await this.actividadesService.obtenerImagenParaDescarga(
+        id,
+        idImagen,
+        obtenerEjecutor(req)?.id,
+      );
 
     res.set({
       'Content-Type': imagen.mimeType,
@@ -130,6 +140,10 @@ export class ActividadesController {
     @Param('idImagen', ParseIntPipe) idImagen: number,
     @Request() req: any,
   ) {
-    return this.actividadesService.eliminarImagen(id, idImagen, obtenerEjecutor(req));
+    return this.actividadesService.eliminarImagen(
+      id,
+      idImagen,
+      obtenerEjecutor(req),
+    );
   }
 }

@@ -67,9 +67,11 @@ export const actividadesListado: DefinicionReporte = {
   clave: 'actividades-listado',
   titulo: 'Actividades del parque',
   descripcion:
-    'Actividades del parque publicadas para el período, con su sector, quién la publicó, ' +
-    'el responsable de ejecutarla, la ventana de fechas y si está programada, vigente, ' +
-    'expirada o anulada. Sirve para planificar o revisar la agenda del parque.',
+    'Agenda del parque: cada actividad con su sector, su responsable, su ventana de ' +
+    'fechas y su estado.',
+  pistasIa:
+    'Dice también quién la publicó, y si está programada, vigente, expirada o ' +
+    'anulada. Sirve para planificar o revisar la agenda del parque.',
   categoria: 'Actividades',
   moduloOrigen: 'ActividadesParque',
   orientacionSugerida: 'horizontal',

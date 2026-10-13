@@ -11,7 +11,7 @@
     "start": "nest start",
     "dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/src/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -33,13 +33,16 @@
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "date-fns": "^4.4.0",
+    "date-fns-tz": "^3.2.0",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "nodemailer": "^9.0.3",
     "pdfkit": "^0.19.1",
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "svix": "^2.5.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -76,18 +79,23 @@
   "jest": {
     "moduleFileExtensions": [
       "js",
+      "mjs",
       "json",
       "ts"
     ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
+      "^.+\\.(t|j)s$": "ts-jest",
+      "^.+\\.mjs$": "ts-jest"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "transformIgnorePatterns": [
+      "/node_modules/(?!svix/)"
+    ]
   }
 }

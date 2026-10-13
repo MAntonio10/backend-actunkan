@@ -30,9 +30,11 @@ export const usuariosPermisos: DefinicionReporte = {
   clave: 'usuarios-permisos',
   titulo: 'Matriz de permisos',
   descripcion:
-    'Qué puede hacer cada usuario en cada módulo del sistema, en forma de matriz: una ' +
-    'fila por usuario y una columna por módulo, con las acciones concedidas. Responde a ' +
-    'preguntas sobre permisos, accesos, privilegios o quién puede hacer qué.',
+    'Qué puede hacer cada usuario en cada módulo, en forma de matriz: una fila por ' +
+    'usuario.',
+  pistasIa:
+    'Una columna por módulo, con las acciones concedidas. Responde a preguntas sobre ' +
+    'permisos, accesos, privilegios o quién puede hacer qué.',
   categoria: 'Usuarios',
   moduloOrigen: 'Usuarios',
   orientacionSugerida: 'horizontal',

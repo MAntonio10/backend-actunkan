@@ -8,8 +8,12 @@ describe('resolverTarifaEn', () => {
 
   beforeEach(() => {
     tx = {
-      tarifa: { findFirst: jest.fn().mockResolvedValue({ id: 1, precio: '20.0000' }) },
-      tarifaGuia: { findFirst: jest.fn().mockResolvedValue({ id: 1, precio: '15.0000' }) },
+      tarifa: {
+        findFirst: jest.fn().mockResolvedValue({ id: 1, precio: '20.0000' }),
+      },
+      tarifaGuia: {
+        findFirst: jest.fn().mockResolvedValue({ id: 1, precio: '15.0000' }),
+      },
     };
   });
 
@@ -66,22 +70,34 @@ describe('resolverTarifaEn', () => {
   });
 
   it('filtra por la combinación completa de atracción, origen y categoría', async () => {
-    await resolverTarifaEn(tx, { idAtraccion: 2, idOrigen: 3, idTipoVisitante: 4 }, new Date());
+    await resolverTarifaEn(
+      tx,
+      { idAtraccion: 2, idOrigen: 3, idTipoVisitante: 4 },
+      new Date(),
+    );
 
-    expect(whereDe()).toMatchObject({ idAtraccion: 2, idOrigen: 3, idTipoVisitante: 4 });
+    expect(whereDe()).toMatchObject({
+      idAtraccion: 2,
+      idOrigen: 3,
+      idTipoVisitante: 4,
+    });
   });
 
   // Si un error de datos dejara ventanas superpuestas, el precio no puede salir al azar.
   it('ante ventanas superpuestas prefiere la más reciente ya iniciada', async () => {
     await resolverTarifaEn(tx, CLAVE, new Date());
 
-    expect(tx.tarifa.findFirst.mock.calls[0][0].orderBy).toEqual({ vigenteDesde: 'desc' });
+    expect(tx.tarifa.findFirst.mock.calls[0][0].orderBy).toEqual({
+      vigenteDesde: 'desc',
+    });
   });
 
   it('devuelve null cuando no había tarifa cargada en esa fecha', async () => {
     tx.tarifa.findFirst.mockResolvedValue(null);
 
-    await expect(resolverTarifaEn(tx, CLAVE, new Date('2020-01-01'))).resolves.toBeNull();
+    await expect(
+      resolverTarifaEn(tx, CLAVE, new Date('2020-01-01')),
+    ).resolves.toBeNull();
   });
 
   it('sin fecha explícita resuelve la de ahora', async () => {
@@ -99,7 +115,11 @@ describe('resolverTarifaGuiaEn', () => {
   let tx: any;
 
   beforeEach(() => {
-    tx = { tarifaGuia: { findFirst: jest.fn().mockResolvedValue({ id: 1, precio: '15.0000' }) } };
+    tx = {
+      tarifaGuia: {
+        findFirst: jest.fn().mockResolvedValue({ id: 1, precio: '15.0000' }),
+      },
+    };
   });
 
   it('aplica la misma ventana de vigencia', async () => {
@@ -123,6 +143,8 @@ describe('resolverTarifaGuiaEn', () => {
   it('devuelve null si no había tarifa de guía en esa fecha', async () => {
     tx.tarifaGuia.findFirst.mockResolvedValue(null);
 
-    await expect(resolverTarifaGuiaEn(tx, new Date('2020-01-01'))).resolves.toBeNull();
+    await expect(
+      resolverTarifaGuiaEn(tx, new Date('2020-01-01')),
+    ).resolves.toBeNull();
   });
 });

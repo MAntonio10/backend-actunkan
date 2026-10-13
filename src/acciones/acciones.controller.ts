@@ -51,7 +51,11 @@ export class AccionesController {
     @Body() updateAccionDto: UpdateAccionDto,
     @Request() req: any,
   ) {
-    return this.accionesService.update(id, updateAccionDto, this.getEjecutor(req));
+    return this.accionesService.update(
+      id,
+      updateAccionDto,
+      this.getEjecutor(req),
+    );
   }
 
   @Delete(':id')

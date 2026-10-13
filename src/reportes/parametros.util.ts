@@ -16,7 +16,9 @@ import { GenerarReporteDto } from './dto/generar-reporte.dto';
  */
 
 /** Nombres de query string que el reporte declara en su catálogo. */
-export function parametrosDeclarados(definicion: DefinicionReporte): Set<string> {
+export function parametrosDeclarados(
+  definicion: DefinicionReporte,
+): Set<string> {
   const declarados = new Set<string>();
   for (const filtro of definicion.filtros) {
     const nombres =

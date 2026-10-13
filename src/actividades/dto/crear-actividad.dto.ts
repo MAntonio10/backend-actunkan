@@ -19,17 +19,25 @@ export class CrearActividadDto {
 
   @IsNotEmpty({ message: 'La descripción es obligatoria.' })
   @IsString({ message: 'La descripción debe ser una cadena de texto.' })
-  @MaxLength(5000, { message: 'La descripción no puede exceder los 5000 caracteres.' })
+  @MaxLength(5000, {
+    message: 'La descripción no puede exceder los 5000 caracteres.',
+  })
   descripcionActividad: string;
 
   /** Desde cuándo se muestra a los demás usuarios. */
   @IsNotEmpty({ message: 'La fecha de inicio es obligatoria.' })
-  @IsDateString({}, { message: 'La fecha de inicio debe ser una fecha válida (ISO 8601).' })
+  @IsDateString(
+    {},
+    { message: 'La fecha de inicio debe ser una fecha válida (ISO 8601).' },
+  )
   fechaInicio: string;
 
   /** Hasta cuándo se muestra. Sin ella, la publicación no expira. */
   @IsOptional()
-  @IsDateString({}, { message: 'La fecha de fin debe ser una fecha válida (ISO 8601).' })
+  @IsDateString(
+    {},
+    { message: 'La fecha de fin debe ser una fecha válida (ISO 8601).' },
+  )
   fechaFin?: string;
 
   @IsOptional()

@@ -47,11 +47,13 @@ const COLUMNAS = [
  */
 export const ventasPorFormaDePago: DefinicionReporte = {
   clave: 'ventas-por-forma-pago',
-  titulo: 'Ventas por forma de pago',
+  titulo: 'Recaudación por forma de pago',
   descripcion:
-    'Cómo se cobraron las ventas del período: efectivo contra tarjeta, separando los ' +
-    'pagos confirmados de los pendientes y los cancelados. Responde a preguntas sobre ' +
-    'métodos de pago, cobros con tarjeta o cuánto entró en efectivo.',
+    'Cómo se cobró: efectivo contra tarjeta, separando los pagos confirmados de los ' +
+    'pendientes y los cancelados.',
+  pistasIa:
+    'Responde a preguntas sobre métodos de pago, cobros con tarjeta o cuánto entró ' +
+    'en efectivo.',
   categoria: 'Tickets',
   moduloOrigen: 'EmisionTickets',
   orientacionSugerida: 'vertical',
@@ -70,7 +72,7 @@ export const ventasPorFormaDePago: DefinicionReporte = {
         );
 
     return {
-      titulo: 'Ventas por forma de pago',
+      titulo: 'Recaudación por forma de pago',
       periodo: periodoDe(filtros),
       filtrosAplicados: filtros.aplicados,
       kpis: [

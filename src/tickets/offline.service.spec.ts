@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
@@ -15,10 +19,20 @@ import {
   LOTE_INVALIDADO,
   OfflineService,
 } from './offline.service';
+import { aInstanteReal, getFechaUTC6 } from '../common/utils/date.util';
 
 const EJECUTOR = { id: 3, email: 'cajero@test.com' };
 const CAJA_DEL_LOTE = 12;
 const OTRA_CAJA = 99;
+
+/**
+ * Un lote tal como lo devuelve la base: sus fechas son **reloj de pared** de
+ * Guatemala, no instantes reales. La distincion importa porque el acotado compara
+ * esas fechas contra la que declara el dispositivo, que si es un instante real; con
+ * los datos de prueba nacidos de `Date.now()` sin convertir, la prueba comparaba dos
+ * convenciones y daba por bueno un piso seis horas mas atras del real.
+ */
+const CREACION_LOTE = new Date(Date.now() - 8 * 3600_000);
 
 const loteBase = (extra: any = {}) => ({
   id: 7,
@@ -26,8 +40,8 @@ const loteBase = (extra: any = {}) => ({
   idAperturaCaja: CAJA_DEL_LOTE,
   idDispositivo: 'disp-1',
   estado: LOTE_ACTIVO,
-  fechaCreacion: new Date(Date.now() - 8 * 3600_000),
-  expiraEn: new Date(Date.now() + 8 * 3600_000),
+  fechaCreacion: getFechaUTC6(CREACION_LOTE),
+  expiraEn: getFechaUTC6(new Date(Date.now() + 8 * 3600_000)),
   folios: [],
   ...extra,
 });
@@ -71,13 +85,20 @@ describe('OfflineService', () => {
           estado: { nombre: 'Abierta' },
         }),
       },
-      usuario: { findUnique: jest.fn().mockResolvedValue({ id: 3, nombre: 'Cajero' }) },
+      usuario: {
+        findUnique: jest.fn().mockResolvedValue({ id: 3, nombre: 'Cajero' }),
+      },
+      // Reservar comprueba antes si la taquilla ya firma por su cuenta. Sin registro
+      // devuelve null, que es el caso de este bloque: el modelo de folios reservados.
+      dispositivoTaquilla: { findUnique: jest.fn().mockResolvedValue(null) },
       loteOffline: {
         findFirst: jest.fn().mockResolvedValue(null),
         // Lotes vencidos del dispositivo: por defecto ninguno.
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(({ data }: any) => Promise.resolve({ id: 7, ...data })),
-        update: jest.fn(({ data }: any) => Promise.resolve({ ...loteBase(), ...data })),
+        update: jest.fn(({ data }: any) =>
+          Promise.resolve({ ...loteBase(), ...data }),
+        ),
       },
       folioReservado: {
         findUnique: jest.fn().mockResolvedValue(folioBase()),
@@ -89,12 +110,18 @@ describe('OfflineService', () => {
         count: jest.fn().mockResolvedValue(0),
       },
       correlativo: {
-        upsert: jest.fn().mockResolvedValue({ serie: 'TCK', anio: 2026, ultimoNumero: 101 }),
+        upsert: jest
+          .fn()
+          .mockResolvedValue({ serie: 'TCK', anio: 2026, ultimoNumero: 101 }),
       },
       grupoEmision: { create: jest.fn().mockResolvedValue({ id: 55 }) },
       ticket: {
-        create: jest.fn(({ data }: any) => Promise.resolve({ id: 900, ...data })),
-        findUnique: jest.fn().mockResolvedValue({ id: 900, numeroTicket: 'TCK-2026-000101' }),
+        create: jest.fn(({ data }: any) =>
+          Promise.resolve({ id: 900, ...data }),
+        ),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 900, numeroTicket: 'TCK-2026-000101' }),
       },
       tarifaGuia: {
         findFirst: jest.fn().mockResolvedValue({ id: 1, precio: '15.0000' }),
@@ -129,13 +156,20 @@ describe('OfflineService', () => {
       findOne: jest.fn().mockResolvedValue({ id: 900 }),
     };
 
-    jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
+    jest
+      .spyOn(BitacoraService, 'registrarEnTransaccion')
+      .mockResolvedValue({} as any);
 
     const modulo: TestingModule = await Test.createTestingModule({
       providers: [
         OfflineService,
         { provide: PrismaService, useValue: prisma },
-        { provide: CajasService, useValue: { obtenerActual: jest.fn().mockResolvedValue({ id: CAJA_DEL_LOTE }) } },
+        {
+          provide: CajasService,
+          useValue: {
+            obtenerActual: jest.fn().mockResolvedValue({ id: CAJA_DEL_LOTE }),
+          },
+        },
         { provide: TicketsService, useValue: tickets },
       ],
     }).compile();
@@ -158,12 +192,17 @@ describe('OfflineService', () => {
       }).compile();
 
       await expect(
-        modulo.get(OfflineService).reservar({ cantidad: 5, idDispositivo: 'd' }, EJECUTOR),
+        modulo
+          .get(OfflineService)
+          .reservar({ cantidad: 5, idDispositivo: 'd' }, EJECUTOR),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('genera un folio por cada unidad pedida, con su firma', async () => {
-      const lote = await service.reservar({ cantidad: 3, idDispositivo: 'disp-1' }, EJECUTOR);
+      const lote = await service.reservar(
+        { cantidad: 3, idDispositivo: 'disp-1' },
+        EJECUTOR,
+      );
 
       expect(tx.folioReservado.create).toHaveBeenCalledTimes(3);
       expect(lote.folios).toHaveLength(3);
@@ -172,7 +211,10 @@ describe('OfflineService', () => {
 
     // Reproducir el formato a mano rompería los pases cuando cambie.
     it('arma el QR con el mismo formato JSON de la emisión online', async () => {
-      const lote = await service.reservar({ cantidad: 1, idDispositivo: 'disp-1' }, EJECUTOR);
+      const lote = await service.reservar(
+        { cantidad: 1, idDispositivo: 'disp-1' },
+        EJECUTOR,
+      );
 
       const qr = JSON.parse(lote.folios[0].qr);
       expect(qr).toEqual({
@@ -183,7 +225,10 @@ describe('OfflineService', () => {
 
     // Es el contador que comparte con la emisión online: sin eso, dos folios iguales.
     it('toma los números del correlativo global', async () => {
-      await service.reservar({ cantidad: 2, idDispositivo: 'disp-1' }, EJECUTOR);
+      await service.reservar(
+        { cantidad: 2, idDispositivo: 'disp-1' },
+        EJECUTOR,
+      );
 
       expect(tx.correlativo.upsert).toHaveBeenCalledTimes(2);
     });
@@ -201,7 +246,10 @@ describe('OfflineService', () => {
      * podría abrir turno al día siguiente.
      */
     it('un lote vencido no bloquea la reserva del día siguiente', async () => {
-      await service.reservar({ cantidad: 1, idDispositivo: 'disp-1' }, EJECUTOR);
+      await service.reservar(
+        { cantidad: 1, idDispositivo: 'disp-1' },
+        EJECUTOR,
+      );
 
       const where = tx.loteOffline.findFirst.mock.calls[0][0].where;
       expect(where.estado).toBe(LOTE_ACTIVO);
@@ -216,13 +264,20 @@ describe('OfflineService', () => {
     describe('lotes vencidos del dispositivo', () => {
       const conVencido = () =>
         tx.loteOffline.findMany.mockResolvedValue([
-          { id: 5, idDispositivo: 'disp-1', expiraEn: new Date(Date.now() - 8 * 3600_000) },
+          {
+            id: 5,
+            idDispositivo: 'disp-1',
+            expiraEn: new Date(Date.now() - 8 * 3600_000),
+          },
         ]);
 
       it('se concilian al reservar el lote nuevo', async () => {
         conVencido();
 
-        await service.reservar({ cantidad: 1, idDispositivo: 'disp-1' }, EJECUTOR);
+        await service.reservar(
+          { cantidad: 1, idDispositivo: 'disp-1' },
+          EJECUTOR,
+        );
 
         expect(tx.loteOffline.update).toHaveBeenCalledWith({
           where: { id: 5 },
@@ -237,13 +292,19 @@ describe('OfflineService', () => {
       it('el lote nuevo se crea igual', async () => {
         conVencido();
 
-        const lote = await service.reservar({ cantidad: 2, idDispositivo: 'disp-1' }, EJECUTOR);
+        const lote = await service.reservar(
+          { cantidad: 2, idDispositivo: 'disp-1' },
+          EJECUTOR,
+        );
 
         expect(lote.folios).toHaveLength(2);
       });
 
       it('solo busca los del mismo dispositivo, y solo los vencidos', async () => {
-        await service.reservar({ cantidad: 1, idDispositivo: 'disp-1' }, EJECUTOR);
+        await service.reservar(
+          { cantidad: 1, idDispositivo: 'disp-1' },
+          EJECUTOR,
+        );
 
         const where = tx.loteOffline.findMany.mock.calls[0][0].where;
         expect(where.idDispositivo).toBe('disp-1');
@@ -254,7 +315,10 @@ describe('OfflineService', () => {
       it('queda registrado en bitácora', async () => {
         conVencido();
 
-        await service.reservar({ cantidad: 1, idDispositivo: 'disp-1' }, EJECUTOR);
+        await service.reservar(
+          { cantidad: 1, idDispositivo: 'disp-1' },
+          EJECUTOR,
+        );
 
         expect(BitacoraService.registrarEnTransaccion).toHaveBeenCalledWith(
           tx,
@@ -264,13 +328,21 @@ describe('OfflineService', () => {
     });
 
     it('ata el lote a la caja abierta, no a una que mande el cliente', async () => {
-      await service.reservar({ cantidad: 1, idDispositivo: 'disp-1' }, EJECUTOR);
+      await service.reservar(
+        { cantidad: 1, idDispositivo: 'disp-1' },
+        EJECUTOR,
+      );
 
-      expect(tx.loteOffline.create.mock.calls[0][0].data.idAperturaCaja).toBe(CAJA_DEL_LOTE);
+      expect(tx.loteOffline.create.mock.calls[0][0].data.idAperturaCaja).toBe(
+        CAJA_DEL_LOTE,
+      );
     });
 
     it('usa aislamiento Serializable', async () => {
-      await service.reservar({ cantidad: 1, idDispositivo: 'disp-1' }, EJECUTOR);
+      await service.reservar(
+        { cantidad: 1, idDispositivo: 'disp-1' },
+        EJECUTOR,
+      );
 
       expect(prisma.$transaction.mock.calls[0][1].isolationLevel).toBe(
         Prisma.TransactionIsolationLevel.Serializable,
@@ -284,10 +356,12 @@ describe('OfflineService', () => {
 
       await service.obtenerActivo('disp-1', EJECUTOR);
 
-      expect(prisma.loteOffline.findFirst.mock.calls[0][0].where).toMatchObject({
-        idDispositivo: 'disp-1',
-        idUsuario: EJECUTOR.id,
-      });
+      expect(prisma.loteOffline.findFirst.mock.calls[0][0].where).toMatchObject(
+        {
+          idDispositivo: 'disp-1',
+          idUsuario: EJECUTOR.id,
+        },
+      );
     });
 
     it('devuelve el envoltorio explícito cuando no hay lote', async () => {
@@ -318,7 +392,9 @@ describe('OfflineService', () => {
 
   describe('subir la cola de ventas', () => {
     it('rechaza el lote de otro usuario', async () => {
-      prisma.loteOffline.findUnique.mockResolvedValue(loteBase({ idUsuario: 999 }));
+      prisma.loteOffline.findUnique.mockResolvedValue(
+        loteBase({ idUsuario: 999 }),
+      );
 
       await expect(
         service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR),
@@ -334,12 +410,17 @@ describe('OfflineService', () => {
     });
 
     it('registra la venta y marca el folio como emitido', async () => {
-      const res = await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+      const res = await service.emitirOffline(
+        { idLote: 7, ventas: [ventaBase()] },
+        EJECUTOR,
+      );
 
       expect(res.procesadas).toBe(1);
       expect(res.resultados[0].estado).toBe('CREADO');
       expect(tx.folioReservado.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { estado: FOLIO_EMITIDO, idTicket: 900 } }),
+        expect.objectContaining({
+          data: { estado: FOLIO_EMITIDO, idTicket: 900 },
+        }),
       );
     });
 
@@ -347,7 +428,10 @@ describe('OfflineService', () => {
     it('un idLocal ya registrado no crea nada', async () => {
       prisma.ticket.findFirst.mockResolvedValue({ id: 900 });
 
-      const res = await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+      const res = await service.emitirOffline(
+        { idLote: 7, ventas: [ventaBase()] },
+        EJECUTOR,
+      );
 
       expect(res.resultados[0].estado).toBe('DUPLICADO_IGNORADO');
       expect(tx.ticket.create).not.toHaveBeenCalled();
@@ -355,21 +439,34 @@ describe('OfflineService', () => {
     });
 
     it('guarda el idLocal en el ticket, que es lo que hace posible detectarlo', async () => {
-      await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+      await service.emitirOffline(
+        { idLote: 7, ventas: [ventaBase()] },
+        EJECUTOR,
+      );
 
       expect(tx.ticket.create.mock.calls[0][0].data.idLocal).toBe('uuid-1');
     });
 
     /** La venta pertenece al turno del lote, no al de quien la sube. */
     it('la caja del ticket es la del lote, no la abierta al subir', async () => {
-      await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+      await service.emitirOffline(
+        { idLote: 7, ventas: [ventaBase()] },
+        EJECUTOR,
+      );
 
-      expect(tx.ticket.create.mock.calls[0][0].data.idAperturaCaja).toBe(CAJA_DEL_LOTE);
-      expect(tx.ticket.create.mock.calls[0][0].data.idAperturaCaja).not.toBe(OTRA_CAJA);
+      expect(tx.ticket.create.mock.calls[0][0].data.idAperturaCaja).toBe(
+        CAJA_DEL_LOTE,
+      );
+      expect(tx.ticket.create.mock.calls[0][0].data.idAperturaCaja).not.toBe(
+        OTRA_CAJA,
+      );
     });
 
     it('marca el ticket como de origen offline', async () => {
-      await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+      await service.emitirOffline(
+        { idLote: 7, ventas: [ventaBase()] },
+        EJECUTOR,
+      );
 
       expect(tx.ticket.create.mock.calls[0][0].data.origenOffline).toBe(true);
       expect(tx.ticket.create.mock.calls[0][0].data.idLoteOffline).toBe(7);
@@ -381,7 +478,10 @@ describe('OfflineService', () => {
         opcionPago: { id: 2, nombre: 'Tarjeta', esEfectivo: false },
       });
 
-      const res = await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+      const res = await service.emitirOffline(
+        { idLote: 7, ventas: [ventaBase()] },
+        EJECUTOR,
+      );
 
       expect(res.resultados[0].codigo).toBe('PAGO_NO_EFECTIVO');
     });
@@ -389,7 +489,10 @@ describe('OfflineService', () => {
     it('rechaza un folio de otro lote', async () => {
       tx.folioReservado.findUnique.mockResolvedValue(folioBase({ idLote: 8 }));
 
-      const res = await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+      const res = await service.emitirOffline(
+        { idLote: 7, ventas: [ventaBase()] },
+        EJECUTOR,
+      );
 
       expect(res.resultados[0].codigo).toBe('FOLIO_DE_OTRO_LOTE');
     });
@@ -403,7 +506,10 @@ describe('OfflineService', () => {
         folioBase({ estado: FOLIO_EMITIDO, idTicket: 500 }),
       );
 
-      const res = await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+      const res = await service.emitirOffline(
+        { idLote: 7, ventas: [ventaBase()] },
+        EJECUTOR,
+      );
 
       expect(res.resultados[0].codigo).toBe('FOLIO_YA_EMITIDO');
     });
@@ -411,15 +517,23 @@ describe('OfflineService', () => {
     it('rechaza un folio inexistente', async () => {
       tx.folioReservado.findUnique.mockResolvedValue(null);
 
-      const res = await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+      const res = await service.emitirOffline(
+        { idLote: 7, ventas: [ventaBase()] },
+        EJECUTOR,
+      );
 
       expect(res.resultados[0].codigo).toBe('FOLIO_NO_RESERVADO');
     });
 
     it('rechaza todas las ventas de un lote invalidado', async () => {
-      prisma.loteOffline.findUnique.mockResolvedValue(loteBase({ estado: LOTE_INVALIDADO }));
+      prisma.loteOffline.findUnique.mockResolvedValue(
+        loteBase({ estado: LOTE_INVALIDADO }),
+      );
 
-      const res = await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+      const res = await service.emitirOffline(
+        { idLote: 7, ventas: [ventaBase()] },
+        EJECUTOR,
+      );
 
       expect(res.resultados[0].codigo).toBe('LOTE_INVALIDADO');
     });
@@ -433,7 +547,10 @@ describe('OfflineService', () => {
       const res = await service.emitirOffline(
         {
           idLote: 7,
-          ventas: [ventaBase(), ventaBase({ idLocal: 'uuid-2', numeroTicket: 'TCK-2026-000102' })],
+          ventas: [
+            ventaBase(),
+            ventaBase({ idLocal: 'uuid-2', numeroTicket: 'TCK-2026-000102' }),
+          ],
         },
         EJECUTOR,
       );
@@ -460,18 +577,56 @@ describe('OfflineService', () => {
         prisma.loteOffline.findUnique.mockResolvedValue(lote);
 
         await service.emitirOffline(
-          { idLote: 7, ventas: [ventaBase({ fechaEmision: '2020-01-01T00:00:00.000Z' })] },
+          {
+            idLote: 7,
+            ventas: [ventaBase({ fechaEmision: '2020-01-01T00:00:00.000Z' })],
+          },
           EJECUTOR,
         );
 
         const usada: Date = tickets.prepararEmision.mock.calls[0][2];
-        expect(usada.getTime()).toBe(lote.fechaCreacion.getTime());
+        // Convertida, porque el piso sale de una columna y la venta de un reloj.
+        expect(usada.getTime()).toBe(
+          aInstanteReal(lote.fechaCreacion).getTime(),
+        );
+      });
+
+      /**
+       * La ventana donde el acotado fallaba en silencio.
+       *
+       * Una fecha de 2020 la rechaza cualquier version del codigo. Lo que se colaba
+       * era la venta de hace un rato: comparar el instante declarado contra el reloj
+       * de pared del lote dejaba el piso seis horas antes de que el lote existiera,
+       * asi que una venta anterior a la apertura entraba con su fecha intacta y
+       * resolvia la tarifa de otro dia.
+       */
+      it('una venta de una hora antes de crearse el lote tambien se acota', async () => {
+        const lote = loteBase();
+        prisma.loteOffline.findUnique.mockResolvedValue(lote);
+        const unaHoraAntes = new Date(CREACION_LOTE.getTime() - 3600_000);
+
+        await service.emitirOffline(
+          {
+            idLote: 7,
+            ventas: [ventaBase({ fechaEmision: unaHoraAntes.toISOString() })],
+          },
+          EJECUTOR,
+        );
+
+        const usada: Date = tickets.prepararEmision.mock.calls[0][2];
+        expect(usada.getTime()).toBe(
+          aInstanteReal(lote.fechaCreacion).getTime(),
+        );
+        expect(usada.getTime()).toBeGreaterThan(unaHoraAntes.getTime());
       });
 
       it('una fecha válida se respeta', async () => {
         const valida = new Date(Date.now() - 4 * 3600_000);
         await service.emitirOffline(
-          { idLote: 7, ventas: [ventaBase({ fechaEmision: valida.toISOString() })] },
+          {
+            idLote: 7,
+            ventas: [ventaBase({ fechaEmision: valida.toISOString() })],
+          },
           EJECUTOR,
         );
 
@@ -481,7 +636,10 @@ describe('OfflineService', () => {
 
       // Sin esto, una venta de ayer se recalcularía con el precio de hoy.
       it('la tarifa se resuelve con la fecha de la venta, no con la de subida', async () => {
-        await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+        await service.emitirOffline(
+          { idLote: 7, ventas: [ventaBase()] },
+          EJECUTOR,
+        );
 
         expect(tickets.prepararEmision).toHaveBeenCalledWith(
           expect.anything(),
@@ -493,9 +651,14 @@ describe('OfflineService', () => {
 
     describe('discrepancia entre lo cobrado y lo que correspondía', () => {
       it('si coinciden no guarda montoRecalculado', async () => {
-        const res = await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+        const res = await service.emitirOffline(
+          { idLote: 7, ventas: [ventaBase()] },
+          EJECUTOR,
+        );
 
-        expect(tx.ticket.create.mock.calls[0][0].data.montoRecalculado).toBeNull();
+        expect(
+          tx.ticket.create.mock.calls[0][0].data.montoRecalculado,
+        ).toBeNull();
         expect(res.resultados[0].discrepancia).toBeNull();
       });
 
@@ -507,7 +670,9 @@ describe('OfflineService', () => {
         );
 
         expect(res.resultados[0].estado).toBe('CREADO');
-        expect(Number(tx.ticket.create.mock.calls[0][0].data.montoRecalculado)).toBe(40);
+        expect(
+          Number(tx.ticket.create.mock.calls[0][0].data.montoRecalculado),
+        ).toBe(40);
         expect(res.resultados[0].discrepancia).toEqual({
           montoCobrado: '30',
           montoRecalculado: '40',
@@ -531,7 +696,10 @@ describe('OfflineService', () => {
     describe('guía', () => {
       // Offline es normal que el mismo guía nuevo acompañe a varios grupos.
       it('reutiliza un guía existente en vez de rechazar por nombre repetido', async () => {
-        await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+        await service.emitirOffline(
+          { idLote: 7, ventas: [ventaBase()] },
+          EJECUTOR,
+        );
 
         expect(tickets.resolverGuia).toHaveBeenCalledWith(
           expect.anything(),
@@ -550,7 +718,11 @@ describe('OfflineService', () => {
       describe('reparto del monto entre los dos tickets', () => {
         /** El caso reportado: 1 adulto nacional (Q20) + guía sin carnet (Q15) = Q35. */
         const conGuia = () => {
-          tickets.resolverGuia.mockResolvedValue({ id: 4, nombre: 'Pedro', tieneCarnet: false });
+          tickets.resolverGuia.mockResolvedValue({
+            id: 4,
+            nombre: 'Pedro',
+            tieneCarnet: false,
+          });
           tickets.prepararEmision.mockResolvedValue({
             atraccion: { id: 1, nombre: 'Cuevas' },
             origen: { id: 1, codigo: 'nacional', nombre: 'Nacional' },
@@ -570,7 +742,9 @@ describe('OfflineService', () => {
           });
           tx.folioReservado.findUnique
             .mockResolvedValueOnce(folioBase())
-            .mockResolvedValueOnce(folioBase({ id: 101, numeroTicket: 'TCK-2026-000102' }));
+            .mockResolvedValueOnce(
+              folioBase({ id: 101, numeroTicket: 'TCK-2026-000102' }),
+            );
         };
 
         const ventaConGuia = (montoCobrado = '35.00') =>
@@ -581,7 +755,10 @@ describe('OfflineService', () => {
         it('al visitante le corresponde el total menos la tarifa del guía', async () => {
           conGuia();
 
-          await service.emitirOffline({ idLote: 7, ventas: [ventaConGuia('35.00')] }, EJECUTOR);
+          await service.emitirOffline(
+            { idLote: 7, ventas: [ventaConGuia('35.00')] },
+            EJECUTOR,
+          );
 
           expect(Number(datos(0).montoTotal)).toBe(20);
           expect(Number(datos(1).montoTotal)).toBe(15);
@@ -590,7 +767,10 @@ describe('OfflineService', () => {
         it('los pagos suman exactamente lo cobrado, sin contar dos veces al guía', async () => {
           conGuia();
 
-          await service.emitirOffline({ idLote: 7, ventas: [ventaConGuia('35.00')] }, EJECUTOR);
+          await service.emitirOffline(
+            { idLote: 7, ventas: [ventaConGuia('35.00')] },
+            EJECUTOR,
+          );
 
           const pagoVisitante = Number(datos(0).ticketPagos.create.monto);
           const pagoGuia = Number(datos(1).ticketPagos.create.monto);
@@ -633,7 +813,10 @@ describe('OfflineService', () => {
         it('si se cobró de menos, el guía cobra su tarifa y el resto va al visitante', async () => {
           conGuia();
 
-          await service.emitirOffline({ idLote: 7, ventas: [ventaConGuia('30.00')] }, EJECUTOR);
+          await service.emitirOffline(
+            { idLote: 7, ventas: [ventaConGuia('30.00')] },
+            EJECUTOR,
+          );
 
           expect(Number(datos(0).montoTotal)).toBe(15);
           expect(Number(datos(1).montoTotal)).toBe(15);
@@ -645,7 +828,10 @@ describe('OfflineService', () => {
         it('cobrar menos que la tarifa del guía no deja el visitante en negativo', async () => {
           conGuia();
 
-          await service.emitirOffline({ idLote: 7, ventas: [ventaConGuia('10.00')] }, EJECUTOR);
+          await service.emitirOffline(
+            { idLote: 7, ventas: [ventaConGuia('10.00')] },
+            EJECUTOR,
+          );
 
           expect(Number(datos(0).montoTotal)).toBe(0);
           expect(Number(datos(1).montoTotal)).toBe(10);
@@ -654,7 +840,10 @@ describe('OfflineService', () => {
 
         // Sin guía, el visitante se lleva todo: no hay nada que repartir.
         it('una venta sin guía no cambia de comportamiento', async () => {
-          const res = await service.emitirOffline({ idLote: 7, ventas: [ventaBase()] }, EJECUTOR);
+          const res = await service.emitirOffline(
+            { idLote: 7, ventas: [ventaBase()] },
+            EJECUTOR,
+          );
 
           expect(Number(datos(0).montoTotal)).toBe(40);
           expect(res.resultados[0].discrepancia).toBeNull();
@@ -662,13 +851,22 @@ describe('OfflineService', () => {
       });
 
       it('el segundo folio genera el ticket del guía', async () => {
-        tickets.resolverGuia.mockResolvedValue({ id: 4, nombre: 'Pedro', tieneCarnet: false });
+        tickets.resolverGuia.mockResolvedValue({
+          id: 4,
+          nombre: 'Pedro',
+          tieneCarnet: false,
+        });
         tx.folioReservado.findUnique
           .mockResolvedValueOnce(folioBase())
-          .mockResolvedValueOnce(folioBase({ id: 101, numeroTicket: 'TCK-2026-000102' }));
+          .mockResolvedValueOnce(
+            folioBase({ id: 101, numeroTicket: 'TCK-2026-000102' }),
+          );
 
         await service.emitirOffline(
-          { idLote: 7, ventas: [ventaBase({ numeroTicketGuia: 'TCK-2026-000102' })] },
+          {
+            idLote: 7,
+            ventas: [ventaBase({ numeroTicketGuia: 'TCK-2026-000102' })],
+          },
           EJECUTOR,
         );
 
@@ -678,13 +876,22 @@ describe('OfflineService', () => {
 
       // El idLocal identifica la venta, no el ticket: repetirlo rompería el único.
       it('el ticket del guía no repite el idLocal', async () => {
-        tickets.resolverGuia.mockResolvedValue({ id: 4, nombre: 'Pedro', tieneCarnet: false });
+        tickets.resolverGuia.mockResolvedValue({
+          id: 4,
+          nombre: 'Pedro',
+          tieneCarnet: false,
+        });
         tx.folioReservado.findUnique
           .mockResolvedValueOnce(folioBase())
-          .mockResolvedValueOnce(folioBase({ id: 101, numeroTicket: 'TCK-2026-000102' }));
+          .mockResolvedValueOnce(
+            folioBase({ id: 101, numeroTicket: 'TCK-2026-000102' }),
+          );
 
         await service.emitirOffline(
-          { idLote: 7, ventas: [ventaBase({ numeroTicketGuia: 'TCK-2026-000102' })] },
+          {
+            idLote: 7,
+            ventas: [ventaBase({ numeroTicketGuia: 'TCK-2026-000102' })],
+          },
           EJECUTOR,
         );
 
@@ -696,7 +903,9 @@ describe('OfflineService', () => {
   describe('conciliar', () => {
     it('los folios sin vender pasan a NO_UTILIZADO', async () => {
       prisma.loteOffline.findUnique.mockResolvedValue(
-        loteBase({ folios: [folioBase(), folioBase({ id: 101, estado: FOLIO_EMITIDO })] }),
+        loteBase({
+          folios: [folioBase(), folioBase({ id: 101, estado: FOLIO_EMITIDO })],
+        }),
       );
 
       const res = await service.conciliar(7, {}, EJECUTOR);
@@ -715,7 +924,9 @@ describe('OfflineService', () => {
      * conciliación dejaría la caja sin poder cerrarse.
      */
     it('un folio declarado vendido sin ticket avisa pero no falla', async () => {
-      prisma.loteOffline.findUnique.mockResolvedValue(loteBase({ folios: [folioBase()] }));
+      prisma.loteOffline.findUnique.mockResolvedValue(
+        loteBase({ folios: [folioBase()] }),
+      );
 
       const res = await service.conciliar(
         7,
@@ -725,7 +936,10 @@ describe('OfflineService', () => {
 
       expect(res.estado).toBe(LOTE_CONCILIADO);
       expect(res.advertencias).toEqual([
-        { numeroTicket: 'TCK-2026-000140', detalle: 'Declarado utilizado, sin ticket registrado' },
+        {
+          numeroTicket: 'TCK-2026-000140',
+          detalle: 'Declarado utilizado, sin ticket registrado',
+        },
       ]);
     });
 
@@ -744,15 +958,21 @@ describe('OfflineService', () => {
     });
 
     it('rechaza conciliar dos veces', async () => {
-      prisma.loteOffline.findUnique.mockResolvedValue(loteBase({ estado: LOTE_CONCILIADO }));
+      prisma.loteOffline.findUnique.mockResolvedValue(
+        loteBase({ estado: LOTE_CONCILIADO }),
+      );
 
-      await expect(service.conciliar(7, {}, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.conciliar(7, {}, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('404 si el lote no existe', async () => {
       prisma.loteOffline.findUnique.mockResolvedValue(null);
 
-      await expect(service.conciliar(7, {}, EJECUTOR)).rejects.toThrow(NotFoundException);
+      await expect(service.conciliar(7, {}, EJECUTOR)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -783,13 +1003,19 @@ describe('OfflineService', () => {
     });
 
     it('rechaza invalidar dos veces', async () => {
-      prisma.loteOffline.findUnique.mockResolvedValue(loteBase({ estado: LOTE_INVALIDADO }));
+      prisma.loteOffline.findUnique.mockResolvedValue(
+        loteBase({ estado: LOTE_INVALIDADO }),
+      );
 
-      await expect(service.invalidar(7, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.invalidar(7, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('deja constancia en bitácora de que se pierden las ventas no subidas', async () => {
-      prisma.loteOffline.findUnique.mockResolvedValue(loteBase({ folios: [folioBase()] }));
+      prisma.loteOffline.findUnique.mockResolvedValue(
+        loteBase({ folios: [folioBase()] }),
+      );
 
       await service.invalidar(7, EJECUTOR);
 

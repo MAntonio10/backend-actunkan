@@ -38,7 +38,11 @@ export class MailService {
       .replace(/'/g, '&#39;');
   }
 
-  async enviarCodigoRestablecimiento(correo: string, nombre: string, codigo: string) {
+  async enviarCodigoRestablecimiento(
+    correo: string,
+    nombre: string,
+    codigo: string,
+  ) {
     const from = process.env.SMTP_FROM || '"Aktun Kan" <noreply@aktunkan.com>';
     const nombreSeguro = this.escaparHtml(nombre);
 
@@ -62,16 +66,23 @@ export class MailService {
         await this.transporter.sendMail({
           from,
           to: correo,
-          subject: 'Código de verificación para restablecer contraseña - Aktun Kan',
+          subject:
+            'Código de verificación para restablecer contraseña - Aktun Kan',
           html: htmlContent,
         });
-        this.logger.log(`Correo con código de verificación enviado exitosamente a ${correo}`);
+        this.logger.log(
+          `Correo con código de verificación enviado exitosamente a ${correo}`,
+        );
       } else {
-        this.logger.warn(`[MODO DESARROLLO / SIN SMTP CONFIGURADO] Código de verificación para ${correo}: [ ${codigo} ]`);
+        this.logger.warn(
+          `[MODO DESARROLLO / SIN SMTP CONFIGURADO] Código de verificación para ${correo}: [ ${codigo} ]`,
+        );
       }
     } catch (error) {
       this.logger.error(`Error al enviar correo a ${correo}:`, error);
-      this.logger.warn(`[CÓDIGO DE RESPALDO EN CONSOLA] Código de verificación para ${correo}: [ ${codigo} ]`);
+      this.logger.warn(
+        `[CÓDIGO DE RESPALDO EN CONSOLA] Código de verificación para ${correo}: [ ${codigo} ]`,
+      );
     }
   }
 
@@ -107,7 +118,9 @@ export class MailService {
     const nombre = this.escaparHtml(datos.nombre || 'visitante');
     const folio = this.escaparHtml(datos.numeroTicket);
     const monto = this.escaparHtml(datos.montoTotal);
-    const atraccion = datos.atraccion ? this.escaparHtml(datos.atraccion) : null;
+    const atraccion = datos.atraccion
+      ? this.escaparHtml(datos.atraccion)
+      : null;
     // El enlace lo produce la pasarela y lo guarda el servidor; aun así se escapa
     // antes de meterlo en el HTML, que es donde una comilla rompería el atributo.
     const enlace = this.escaparHtml(datos.checkoutUrl);

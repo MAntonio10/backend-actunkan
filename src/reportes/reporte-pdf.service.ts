@@ -16,6 +16,8 @@ const ALTO_FILA = 16;
 const ALTO_TOTALES = 18;
 const RELLENO = 5;
 const ALTO_LOGO = 26;
+/** Aire entre los dos logos: suficiente para que no se toquen, poco para que se lean como un bloque. */
+const SEPARACION_LOGOS = 8;
 const ALTO_KPI = 42;
 const KPIS_POR_FILA = 4;
 
@@ -336,12 +338,20 @@ export class ReportePdfService {
     const util = this.anchoUtil(doc);
     let y = MARGEN.superior;
 
+    // Los dos logos van juntos, pegados al margen izquierdo: separados uno en cada
+    // esquina parecían dos encabezados distintos en vez de una sola institución.
+    // El título sigue centrado sobre el ancho útil, así que no los pisa.
     if (logos.propeten && logos.actun) {
-      const anchoActun = ALTO_LOGO * (170 / 140);
+      const anchoPropeten = ALTO_LOGO * (170 / 140);
       doc.image(logos.propeten, MARGEN.izquierdo, y, { height: ALTO_LOGO });
-      doc.image(logos.actun, doc.page.width - MARGEN.derecho - anchoActun, y, {
-        height: ALTO_LOGO,
-      });
+      doc.image(
+        logos.actun,
+        MARGEN.izquierdo + anchoPropeten + SEPARACION_LOGOS,
+        y,
+        {
+          height: ALTO_LOGO,
+        },
+      );
     }
 
     doc

@@ -10,7 +10,12 @@ import { extname, join, resolve } from 'path';
  * que tocara la tabla: los backups se vuelven enormes y el motor pagina datos que
  * casi nunca se leen. Con archivos en disco, la fila pesa unos cientos de bytes.
  */
-export const MIMES_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+/**
+ * Solo JPG y PNG. Se excluyen webp y gif a propósito: el gif admite animación, que
+ * en una galería de actividades distrae más que aporta, y webp todavía da guerra
+ * en visores y editores de escritorio con los que el personal abre las imágenes.
+ */
+export const MIMES_PERMITIDOS = ['image/jpeg', 'image/png'];
 export const TAMANO_MAXIMO_BYTES = 5 * 1024 * 1024;
 
 @Injectable()
@@ -18,7 +23,10 @@ export class AlmacenamientoImagenesService {
   private readonly logger = new Logger(AlmacenamientoImagenesService.name);
 
   get carpetaBase(): string {
-    return resolve(process.env.UPLOADS_DIR || join(process.cwd(), 'uploads'), 'actividades');
+    return resolve(
+      process.env.UPLOADS_DIR || join(process.cwd(), 'uploads'),
+      'actividades',
+    );
   }
 
   private asegurarCarpeta() {
@@ -32,7 +40,10 @@ export class AlmacenamientoImagenesService {
    * `../../.env` y sobrescribir archivos ajenos.
    */
   private generarNombre(nombreOriginal: string): string {
-    const ext = extname(nombreOriginal).toLowerCase().slice(0, 10).replace(/[^.a-z0-9]/g, '');
+    const ext = extname(nombreOriginal)
+      .toLowerCase()
+      .slice(0, 10)
+      .replace(/[^.a-z0-9]/g, '');
     return `${Date.now()}-${randomBytes(8).toString('hex')}${ext || '.img'}`;
   }
 
@@ -51,7 +62,12 @@ export class AlmacenamientoImagenesService {
   }
 
   /** Devuelve el nombre con el que quedó guardado el archivo. */
-  guardar(archivo: { originalname: string; buffer: Buffer; mimetype: string; size: number }): string {
+  guardar(archivo: {
+    originalname: string;
+    buffer: Buffer;
+    mimetype: string;
+    size: number;
+  }): string {
     this.validar(archivo);
     this.asegurarCarpeta();
 
@@ -85,7 +101,9 @@ export class AlmacenamientoImagenesService {
       const ruta = this.rutaDe(nombreArchivo);
       if (existsSync(ruta)) unlinkSync(ruta);
     } catch (error: any) {
-      this.logger.warn(`No se pudo borrar la imagen '${nombreArchivo}': ${error.message}`);
+      this.logger.warn(
+        `No se pudo borrar la imagen '${nombreArchivo}': ${error.message}`,
+      );
     }
   }
 }

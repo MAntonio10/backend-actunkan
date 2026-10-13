@@ -50,6 +50,7 @@ describe('Reportes (e2e)', () => {
 
   /** Claves que el usuario de prueba puede ejecutar, según su propio catálogo. */
   let clavesPermitidas: string[] = [];
+  let reportesPermitidos: any[] = [];
 
   const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -86,7 +87,8 @@ describe('Reportes (e2e)', () => {
     }
 
     const catalogo = await request(http).get('/reportes').set(auth(tokenOk));
-    clavesPermitidas = (catalogo.body?.datos ?? []).map((r: any) => r.clave);
+    reportesPermitidos = catalogo.body?.datos ?? [];
+    clavesPermitidas = reportesPermitidos.map((r: any) => r.clave);
   }, 60000);
 
   afterAll(async () => {
@@ -144,9 +146,13 @@ describe('Reportes (e2e)', () => {
     });
 
     /** Sin clave configurada, el frontend no debe pintar el campo de petición libre. */
-    it('avisa de que la interpretación por IA no está disponible', async () => {
+    // Lo que se comprueba es que el catálogo diga la VERDAD sobre la IA, no que esté
+    // apagada: con clave configurada, afirmar `false` fallaría sin que nada esté mal.
+    it('el catálogo declara con honestidad si la interpretación está disponible', async () => {
       const { body } = await request(http).get('/reportes').set(auth(tokenOk));
-      expect(body.interpretacionDisponible).toBe(false);
+      expect(body.interpretacionDisponible).toBe(
+        Boolean(process.env.IA_API_KEY),
+      );
     });
   });
 
@@ -158,13 +164,36 @@ describe('Reportes (e2e)', () => {
     it('todos los reportes del catálogo responden 200 en JSON, PDF y Excel', async () => {
       expect(clavesPermitidas.length).toBeGreaterThan(0);
 
-      for (const clave of clavesPermitidas) {
+      for (const reporte of reportesPermitidos) {
+        const clave = reporte.clave;
         // El arqueo exige una caja concreta; se prueba aparte.
         if (clave === 'arqueo-de-caja') continue;
 
+        /**
+         * La consulta se arma con lo que CADA reporte declara aceptar, no con un
+         * rango fijo para todos.
+         *
+         * El servidor rechaza con 400 un filtro que el reporte no acepta —a
+         * propósito: mandarle `sector` a un reporte de ventas devolvía 200 y un
+         * reporte que ignoraba el filtro en silencio—. Así que los tres que no
+         * llevan fechas (`usuarios-listado`, `usuarios-permisos`, `arqueo-de-caja`)
+         * fallaban por recibir `desde`/`hasta`, no por estar rotos. Leer los
+         * `parametros` del catálogo hace que esto siga funcionando al agregar
+         * reportes nuevos, sin lista de excepciones que mantener.
+         */
+        const aceptados = new Set<string>(
+          (reporte.filtros ?? []).flatMap((f: any) => f.parametros ?? []),
+        );
+
+        const filtros: Record<string, string> = {};
+        if (aceptados.has('desde')) Object.assign(filtros, RANGO);
+        // `dimension` es filtro REQUERIDO de 'ventas-a-medida': sin él responde 400
+        // con razón, y no se estaría probando el reporte sino la validación.
+        if (aceptados.has('dimension')) filtros.dimension = 'atraccion';
+
         const json = await request(http)
           .get(`/reportes/${clave}`)
-          .query(RANGO)
+          .query(filtros)
           .set(auth(tokenOk));
         expect([clave, json.status]).toEqual([clave, 200]);
         expect(json.body).toMatchObject({
@@ -174,7 +203,7 @@ describe('Reportes (e2e)', () => {
 
         const pdf = await request(http)
           .get(`/reportes/${clave}/pdf`)
-          .query(RANGO)
+          .query(filtros)
           .set(auth(tokenOk))
           .buffer()
           .parse((res, cb) => {
@@ -188,7 +217,7 @@ describe('Reportes (e2e)', () => {
 
         const excel = await request(http)
           .get(`/reportes/${clave}/excel`)
-          .query(RANGO)
+          .query(filtros)
           .set(auth(tokenOk))
           .buffer()
           .parse((res, cb) => {
@@ -203,14 +232,27 @@ describe('Reportes (e2e)', () => {
       }
     }, 180000);
 
-    it('la ruta de interpretación responde 503 sin clave configurada', async () => {
+    it('la ruta de interpretación depende de que haya clave configurada', async () => {
       const { status, body } = await request(http)
         .post('/reportes/interpretar')
         .set(auth(tokenOk))
-        .send({ instruccion: 'ventas del mes pasado por vendedor' });
+        .send({ instruccion: 'recaudación del mes pasado por vendedor' });
 
-      expect(status).toBe(503);
-      expect(body.message).toMatch(/no está configurada/i);
+      if (!process.env.IA_API_KEY) {
+        expect(status).toBe(503);
+        expect(body.message).toMatch(/no está configurada/i);
+        return;
+      }
+
+      // Con clave, el proveedor puede fallar por red o por cuota; lo que NO puede es
+      // devolver un 500 ni inventar un reporte que no existe.
+      expect([200, 400, 502, 503, 504]).toContain(status);
+      // La respuesta envuelve el reporte: la clave elegida va en `especificacion`,
+      // no en la raíz.
+      if (status === 200) {
+        expect(body.especificacion).toHaveProperty('clave');
+        expect(clavesPermitidas).toContain(body.especificacion.clave);
+      }
     });
   });
 
@@ -425,14 +467,35 @@ describe('Reportes (e2e)', () => {
     it.each(PAYLOADS_XSS)(
       'acota la instrucción en lenguaje natural (%s)',
       async (payload) => {
-        const { status } = await request(http)
+        const { status, body } = await request(http)
           .post('/reportes/interpretar')
           .set(auth(tokenOk))
           .send({ instruccion: payload });
 
-        // 503 porque no hay clave configurada; lo que importa es que no sea un 500.
-        expect([400, 503]).toContain(status);
+        /**
+         * Lo que se comprueba NO es un código concreto: con clave configurada el
+         * proveedor puede rechazar la instrucción (400) o devolver el reporte que le
+         * parezca más cercano (200), y ambas son respuestas legítimas.
+         *
+         * Lo que no puede pasar es un 500 —el payload reventando algo— ni que la
+         * clave elegida sea una que no existe en el catálogo, que sería la señal de
+         * que el modelo se dejó guiar por la carga en vez de por el catálogo.
+         */
+        // Se distingue 500 de 503 a propósito: 503 es el proveedor negándose o no
+        // respondiendo, y que el backend lo traduzca a 503 es justamente manejarlo.
+        // Un 500 sería el payload reventando algo nuestro. El código exacto varía
+        // entre corridas según cómo reaccione el proveedor, así que fijar uno solo
+        // haría la prueba intermitente sin medir nada más.
+        expect(status).not.toBe(500);
+
+        if (status === 200) {
+          expect(clavesPermitidas).toContain(body.especificacion?.clave);
+        }
       },
+      // Esta prueba sale a la red: el cliente de IA reintenta hasta tres veces antes
+      // de rendirse, así que con los 5 s por omisión fallaba por tiempo y no por lo
+      // que mide. El síntoma era un timeout, que se lee como si el servidor colgara.
+      60000,
     );
 
     it('rechaza una instrucción desmedida', async () => {

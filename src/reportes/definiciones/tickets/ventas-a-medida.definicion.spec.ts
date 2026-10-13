@@ -53,7 +53,9 @@ async function ejecutar(opciones: {
   const prisma: any = {
     $queryRaw: jest.fn().mockResolvedValue(opciones.filas),
     guia: {
-      findMany: jest.fn().mockResolvedValue([{ id: 3, nombre: 'Carlos Garcia' }]),
+      findMany: jest
+        .fn()
+        .mockResolvedValue([{ id: 3, nombre: 'Carlos Garcia' }]),
     },
     usuario: {
       findMany: jest.fn().mockResolvedValue([
@@ -195,7 +197,7 @@ describe('ventas-a-medida', () => {
 
       expect(kpi(reporte, 'Recaudado')).toBe(0);
       expect(kpi(reporte, 'Ticket promedio')).toBe(0);
-      expect(reporte.notas?.[0]).toContain('No hubo ventas');
+      expect(reporte.notas?.[0]).toContain('No hubo recaudación');
     });
   });
 
@@ -223,7 +225,9 @@ describe('ventas-a-medida', () => {
         ) as Array<{ sql: string; values: unknown[] }>;
 
       const sql = fragmentos.map((fragmento) => fragmento.sql).join(' ');
-      const parametros = fragmentos.flatMap((fragmento) => fragmento.values ?? []);
+      const parametros = fragmentos.flatMap(
+        (fragmento) => fragmento.values ?? [],
+      );
 
       expect(sql).toContain('DATEPART(weekday');
       expect(parametros).toContain(6);
@@ -249,7 +253,9 @@ describe('ventas-a-medida', () => {
       });
 
       expect(reporte.secciones[0].filas[0].grupo).toBe('Sin guía');
-      expect(reporte.notas?.join(' ')).toContain('«Sin guía» no es un valor del catálogo');
+      expect(reporte.notas?.join(' ')).toContain(
+        '«Sin guía» no es un valor del catálogo',
+      );
     });
 
     it('un corte de tiempo no lleva esa nota', async () => {
@@ -261,7 +267,9 @@ describe('ventas-a-medida', () => {
         filtros: { dimension: 'mes' },
       });
 
-      expect(reporte.notas?.join(' ')).not.toContain('no es un valor del catálogo');
+      expect(reporte.notas?.join(' ')).not.toContain(
+        'no es un valor del catálogo',
+      );
       // Los meses se leen en orden, no por recaudación.
       expect(reporte.secciones[0].filas.map((f) => f.grupo)).toEqual([
         'Agosto 2026',

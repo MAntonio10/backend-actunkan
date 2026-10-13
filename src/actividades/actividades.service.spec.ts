@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { ActividadesService } from './actividades.service';
@@ -30,18 +34,36 @@ describe('ActividadesService', () => {
   beforeEach(async () => {
     const tx: any = {
       actividadesParque: {
-        create: jest.fn(({ data }: any) => Promise.resolve({ id: 10, ...data })),
-        update: jest.fn(({ data }: any) => Promise.resolve({ ...actividadBase(), ...data })),
+        create: jest.fn(({ data }: any) =>
+          Promise.resolve({ id: 10, ...data }),
+        ),
+        update: jest.fn(({ data }: any) =>
+          Promise.resolve({ ...actividadBase(), ...data }),
+        ),
       },
-      sectorParque: { findUnique: jest.fn().mockResolvedValue({ id: 1, anulado: false }) },
-      usuario: { findUnique: jest.fn().mockResolvedValue({ id: 1, nombre: 'Autor', anulado: false }) },
+      sectorParque: {
+        findUnique: jest.fn().mockResolvedValue({ id: 1, anulado: false }),
+      },
+      usuario: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 1, nombre: 'Autor', anulado: false }),
+      },
     };
 
     prisma = {
       $transaction: jest.fn((cb: any) => cb(tx)),
       tx,
-      actividadesParque: { findUnique: jest.fn(), findMany: jest.fn(), count: jest.fn() },
-      imagenActividad: { findFirst: jest.fn(), create: jest.fn(), delete: jest.fn() },
+      actividadesParque: {
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn(),
+      },
+      imagenActividad: {
+        findFirst: jest.fn(),
+        create: jest.fn(),
+        delete: jest.fn(),
+      },
     };
 
     almacenamiento = {
@@ -52,7 +74,9 @@ describe('ActividadesService', () => {
       eliminar: jest.fn(),
     };
 
-    jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
+    jest
+      .spyOn(BitacoraService, 'registrarEnTransaccion')
+      .mockResolvedValue({} as any);
 
     const modulo: TestingModule = await Test.createTestingModule({
       providers: [
@@ -82,7 +106,11 @@ describe('ActividadesService', () => {
     it('rechaza una ventana con fin anterior al inicio', async () => {
       await expect(
         service.crear(
-          { ...dto, fechaInicio: '2026-08-20T00:00:00Z', fechaFin: '2026-08-19T00:00:00Z' },
+          {
+            ...dto,
+            fechaInicio: '2026-08-20T00:00:00Z',
+            fechaFin: '2026-08-19T00:00:00Z',
+          },
           AUTOR,
         ),
       ).rejects.toThrow(BadRequestException);
@@ -94,7 +122,9 @@ describe('ActividadesService', () => {
     });
 
     it('rechaza si no se puede identificar al autor', async () => {
-      await expect(service.crear(dto, undefined)).rejects.toThrow(BadRequestException);
+      await expect(service.crear(dto, undefined)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -111,13 +141,19 @@ describe('ActividadesService', () => {
     it('impide que otro usuario la anule', async () => {
       prisma.actividadesParque.findUnique.mockResolvedValue(actividadBase());
 
-      await expect(service.anular(10, OTRO)).rejects.toThrow(ForbiddenException);
+      await expect(service.anular(10, OTRO)).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('permite al autor editarla', async () => {
       prisma.actividadesParque.findUnique.mockResolvedValue(actividadBase());
 
-      const res = await service.actualizar(10, { nombreActividad: 'Corregida' }, AUTOR);
+      const res = await service.actualizar(
+        10,
+        { nombreActividad: 'Corregida' },
+        AUTOR,
+      );
       expect(res.nombreActividad).toBe('Corregida');
     });
 
@@ -127,7 +163,12 @@ describe('ActividadesService', () => {
       await expect(
         service.agregarImagen(
           10,
-          { originalname: 'a.png', buffer: Buffer.from(''), mimetype: 'image/png', size: 10 },
+          {
+            originalname: 'a.png',
+            buffer: Buffer.from(''),
+            mimetype: 'image/png',
+            size: 10,
+          },
           OTRO,
         ),
       ).rejects.toThrow(ForbiddenException);
@@ -160,7 +201,9 @@ describe('ActividadesService', () => {
         actividadBase({ fechaFin: desdeAhora(-3600_000) }),
       );
 
-      await expect(service.findOne(10, OTRO.id)).rejects.toThrow(NotFoundException);
+      await expect(service.findOne(10, OTRO.id)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('oculta a los demás una publicación aún no iniciada', async () => {
@@ -168,20 +211,27 @@ describe('ActividadesService', () => {
         actividadBase({ fechaInicio: desdeAhora(86_400_000), fechaFin: null }),
       );
 
-      await expect(service.findOne(10, OTRO.id)).rejects.toThrow(NotFoundException);
+      await expect(service.findOne(10, OTRO.id)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('oculta a los demás una publicación anulada', async () => {
-      prisma.actividadesParque.findUnique.mockResolvedValue(actividadBase({ anulado: true }));
+      prisma.actividadesParque.findUnique.mockResolvedValue(
+        actividadBase({ anulado: true }),
+      );
 
-      await expect(service.findOne(10, OTRO.id)).rejects.toThrow(NotFoundException);
+      await expect(service.findOne(10, OTRO.id)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   // El listado no puede mostrar lo que `findOne` oculta con 404: si difieren,
   // el `total` de la paginación cuenta filas que el usuario no debería ver.
   describe('listado: coherencia con la visibilidad del detalle', () => {
-    const whereDe = () => prisma.actividadesParque.findMany.mock.calls[0][0].where;
+    const whereDe = () =>
+      prisma.actividadesParque.findMany.mock.calls[0][0].where;
 
     beforeEach(() => {
       prisma.actividadesParque.findMany.mockResolvedValue([]);
@@ -189,7 +239,7 @@ describe('ActividadesService', () => {
     });
 
     it('aplica la ventana a las ajenas aunque se pida incluirExpiradas', async () => {
-      await service.findAll({ incluirExpiradas: 'true' } as any, OTRO.id);
+      await service.findAll({ incluirExpiradas: 'true' }, OTRO.id);
 
       const ventana = whereDe().AND.find((c: any) =>
         c.OR?.some((o: any) => o.fechaInicio),
@@ -199,7 +249,7 @@ describe('ActividadesService', () => {
     });
 
     it('con incluirAnuladas solo suma las propias anuladas', async () => {
-      await service.findAll({ incluirAnuladas: 'true' } as any, OTRO.id);
+      await service.findAll({ incluirAnuladas: 'true' }, OTRO.id);
 
       const where = whereDe();
       expect(where.anulado).toBeUndefined();
@@ -209,20 +259,20 @@ describe('ActividadesService', () => {
     });
 
     it('sin el flag excluye toda anulada', async () => {
-      await service.findAll({} as any, OTRO.id);
+      await service.findAll({}, OTRO.id);
 
       expect(whereDe().anulado).toBe(false);
     });
 
     // Sin sesión, `idUsuario` es undefined: nada debe contar como propio.
     it('un usuario sin identificar no hereda publicaciones ajenas', async () => {
-      await service.findAll({ incluirAnuladas: 'true' } as any, undefined);
+      await service.findAll({ incluirAnuladas: 'true' }, undefined);
 
       expect(JSON.stringify(whereDe())).toContain('"idUsuarioAutor":-1');
     });
 
     it('soloAnuladas devuelve únicamente anuladas, y solo las propias', async () => {
-      await service.findAll({ soloAnuladas: 'true' } as any, OTRO.id);
+      await service.findAll({ soloAnuladas: 'true' }, OTRO.id);
 
       const where = whereDe();
       expect(where.anulado).toBe(true);
@@ -232,7 +282,7 @@ describe('ActividadesService', () => {
     // Mismo criterio que el historial de cierres de caja (cajas.service.ts).
     it('soloAnuladas tiene prioridad sobre incluirAnuladas', async () => {
       await service.findAll(
-        { soloAnuladas: 'true', incluirAnuladas: 'true' } as any,
+        { soloAnuladas: 'true', incluirAnuladas: 'true' },
         OTRO.id,
       );
 
@@ -240,9 +290,11 @@ describe('ActividadesService', () => {
     });
 
     it('el total se cuenta con el mismo filtro que las filas devueltas', async () => {
-      await service.findAll({ incluirAnuladas: 'true' } as any, OTRO.id);
+      await service.findAll({ incluirAnuladas: 'true' }, OTRO.id);
 
-      expect(prisma.actividadesParque.count.mock.calls[0][0].where).toEqual(whereDe());
+      expect(prisma.actividadesParque.count.mock.calls[0][0].where).toEqual(
+        whereDe(),
+      );
     });
   });
 
@@ -256,7 +308,12 @@ describe('ActividadesService', () => {
 
       const res = await service.agregarImagen(
         10,
-        { originalname: 'foto.png', buffer: Buffer.from('x'), mimetype: 'image/png', size: 100 },
+        {
+          originalname: 'foto.png',
+          buffer: Buffer.from('x'),
+          mimetype: 'image/png',
+          size: 100,
+        },
         AUTOR,
       );
 
@@ -277,7 +334,12 @@ describe('ActividadesService', () => {
 
       await service.agregarImagen(
         10,
-        { originalname: 'b.png', buffer: Buffer.from('x'), mimetype: 'image/png', size: 10 },
+        {
+          originalname: 'b.png',
+          buffer: Buffer.from('x'),
+          mimetype: 'image/png',
+          size: 10,
+        },
         AUTOR,
       );
 
@@ -286,11 +348,16 @@ describe('ActividadesService', () => {
 
     it('borra el archivo del disco al eliminar la imagen', async () => {
       prisma.actividadesParque.findUnique.mockResolvedValue(actividadBase());
-      prisma.imagenActividad.findFirst.mockResolvedValue({ id: 1, archivo: '1234-abcd.png' });
+      prisma.imagenActividad.findFirst.mockResolvedValue({
+        id: 1,
+        archivo: '1234-abcd.png',
+      });
 
       await service.eliminarImagen(10, 1, AUTOR);
 
-      expect(prisma.imagenActividad.delete).toHaveBeenCalledWith({ where: { id: 1 } });
+      expect(prisma.imagenActividad.delete).toHaveBeenCalledWith({
+        where: { id: 1 },
+      });
       expect(almacenamiento.eliminar).toHaveBeenCalledWith('1234-abcd.png');
     });
   });
@@ -306,20 +373,20 @@ describe('ActividadesService', () => {
     // Actividades comparte la medida de página, pero NO el tope: su máximo es 100
     // porque cada fila arrastra sus imágenes. Esa diferencia es la que se blinda.
     it('reparte de 20 en 20', async () => {
-      const res = await service.findAll({} as any, OTRO.id);
+      const res = await service.findAll({}, OTRO.id);
 
       expect(res.limite).toBe(20);
       expect(args().take).toBe(20);
     });
 
     it('traduce página y límite a skip/take', async () => {
-      await service.findAll({ pagina: 3, limite: 20 } as any, OTRO.id);
+      await service.findAll({ pagina: 3, limite: 20 }, OTRO.id);
 
       expect(args()).toMatchObject({ skip: 40, take: 20 });
     });
 
     it('recorta un límite fuera de rango al tope del módulo', async () => {
-      const res = await service.findAll({ limite: 500 } as any, OTRO.id);
+      const res = await service.findAll({ limite: 500 }, OTRO.id);
 
       expect(res.limite).toBe(100);
     });
@@ -327,7 +394,7 @@ describe('ActividadesService', () => {
     // Sin el desempate, SQL Server no garantiza un orden estable entre páginas:
     // varias publicaciones pueden compartir `fechaInicio`.
     it('ordena por fecha de inicio con desempate por id', async () => {
-      await service.findAll({} as any, OTRO.id);
+      await service.findAll({}, OTRO.id);
 
       expect(args().orderBy).toEqual([{ fechaInicio: 'desc' }, { id: 'desc' }]);
     });

@@ -42,7 +42,9 @@ describe('TarifasService', () => {
     it('el total se cuenta con el mismo filtro que las filas devueltas', async () => {
       await service.findHistorico({ idAtraccion: 1, idOrigen: 2 });
 
-      expect(prisma.tarifa.count.mock.calls[0][0].where).toEqual(argsFindMany().where);
+      expect(prisma.tarifa.count.mock.calls[0][0].where).toEqual(
+        argsFindMany().where,
+      );
     });
 
     it('cierra el orden con un desempate por id', async () => {

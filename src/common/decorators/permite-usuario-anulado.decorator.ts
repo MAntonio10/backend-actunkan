@@ -20,4 +20,5 @@ export const PERMITE_USUARIO_ANULADO_KEY = 'permiteUsuarioAnulado';
  *
  * Ver `ESPECIFICACION_OFFLINE.md` § 11.1.
  */
-export const PermiteUsuarioAnulado = () => SetMetadata(PERMITE_USUARIO_ANULADO_KEY, true);
+export const PermiteUsuarioAnulado = () =>
+  SetMetadata(PERMITE_USUARIO_ANULADO_KEY, true);

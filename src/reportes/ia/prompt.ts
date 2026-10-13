@@ -29,13 +29,20 @@ import { hoyNegocio } from '../rango-negocio.util';
  * que no valida.
  */
 function describirFiltro(filtro: DefinicionReporte['filtros'][number]): string {
+  // `pistasIa` solo existe acá: la descripción la lee una persona en pantalla, esto
+  // no. Por eso el vocabulario del modelo se escribe aparte y se concatena al armar
+  // el prompt, en vez de colarse en el texto que se pinta. Va en las dos ramas: el
+  // rango de fechas es el filtro que más instrucciones lleva —de qué período asumir
+  // cuando no lo dicen— y dejarlo fuera obligaba a escribirlas en la descripción.
+  const pistas = filtro.pistasIa ? ` ${filtro.pistasIa}` : '';
+
   if (filtro.tipo === 'rangoFechas') {
     return (
-      `      - desde: ${filtro.descripcion} Fecha inicial, AAAA-MM-DD.\n` +
+      `      - desde: ${filtro.descripcion}${pistas} Fecha inicial, AAAA-MM-DD.\n` +
       `      - hasta: Fecha final del mismo rango, AAAA-MM-DD.`
     );
   }
-  return `      - ${filtro.clave}: ${filtro.descripcion}`;
+  return `      - ${filtro.clave}: ${filtro.descripcion}${pistas}`;
 }
 
 /**
@@ -84,7 +91,8 @@ function describirReporte(definicion: DefinicionReporte): string {
 
   const lineaFiltros = [
     referencias && `      Filtros: ${referencias}`,
-    sueltos && `${referencias ? '      Además:\n' : '      Filtros que acepta:\n'}${sueltos}`,
+    sueltos &&
+      `${referencias ? '      Además:\n' : '      Filtros que acepta:\n'}${sueltos}`,
   ]
     .filter(Boolean)
     .join('\n');
@@ -92,6 +100,7 @@ function describirReporte(definicion: DefinicionReporte): string {
   return [
     `  * ${definicion.clave}`,
     `      ${definicion.descripcion}`,
+    definicion.pistasIa && `      ${definicion.pistasIa}`,
     lineaFiltros,
   ]
     .filter(Boolean)
@@ -191,7 +200,13 @@ export function esquemaRespuesta() {
  */
 function hoyConDiaSemana(): string {
   const DIAS = [
-    'domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado',
+    'domingo',
+    'lunes',
+    'martes',
+    'miércoles',
+    'jueves',
+    'viernes',
+    'sábado',
   ];
   const iso = hoyNegocio();
   return `${iso} (${DIAS[new Date(`${iso}T00:00:00Z`).getUTCDay()]})`;
@@ -227,6 +242,9 @@ Reglas:
    semana en curso. Usa el día de la semana que te acabo de dar para contar hacia atrás.
 4. Si el usuario no menciona fechas, omite desde y hasta: el servidor usará el mes en curso.
 5. Pon solo los filtros que el usuario mencionó. No rellenes los demás.
+5.0. "Ventas", "venta" y "vendido" significan lo mismo que "recaudación": el catálogo
+   usa esta última, pero la gente sigue diciendo las primeras. Trátalas como sinónimos
+   en los dos sentidos.
 5.1. Si ningún reporte específico responde la petición pero se trata de ventas,
    usa 'ventas-a-medida' con la agrupación que haga falta: es el que cubre los
    cortes que el catálogo no tiene (por guía, por recorrido), los cruces de dos

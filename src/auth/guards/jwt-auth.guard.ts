@@ -50,7 +50,13 @@ export class JwtAuthGuard implements CanActivate {
 
       const usuario = await this.prisma.usuario.findUnique({
         where: { id: payload.sub },
-        select: { id: true, correo: true, nombre: true, idPuesto: true, anulado: true },
+        select: {
+          id: true,
+          correo: true,
+          nombre: true,
+          idPuesto: true,
+          anulado: true,
+        },
       });
 
       if (!usuario) {
@@ -80,11 +86,14 @@ export class JwtAuthGuard implements CanActivate {
        */
       if (payload.soloSincronizacion && !permiteAnulado) {
         throw new UnauthorizedException(
-          'Este token solo permite sincronizar ventas offline pendientes. Vuelva a iniciar sesión.',
+          'Este token solo permite sincronizar la recaudación offline pendiente. Vuelva a iniciar sesión.',
         );
       }
 
-      request.user = { ...usuario, soloSincronizacion: Boolean(payload.soloSincronizacion) };
+      request.user = {
+        ...usuario,
+        soloSincronizacion: Boolean(payload.soloSincronizacion),
+      };
       return true;
     } catch (error) {
       if (error instanceof UnauthorizedException) {

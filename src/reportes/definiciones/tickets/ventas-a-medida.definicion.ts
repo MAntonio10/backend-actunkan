@@ -82,12 +82,17 @@ const FILTRO_DIMENSION: EsquemaFiltro = {
   clave: 'dimension',
   etiqueta: 'Agrupar por',
   tipo: 'opciones',
-  descripcion:
-    'Obligatorio. Por qué se agrupan las ventas. Catálogos: vendedor, atraccion, ' +
-    'origen, pais, tipoRecorrido, guia. Cortes de tiempo: dia, semana, mes, ' +
-    'diaSemana (lunes, martes…), horaDelDia. Es lo que distingue a este reporte: ' +
-    'úsalo para desgloses que los demás no ofrecen, y usa mes cuando pidan ' +
-    'comparar dos meses o ver la evolución mes a mes.',
+  // La lista de claves y el desempate entre reportes se fueron a `pistasIa`: son
+  // para el modelo. El frontend pinta esta descripción junto al control, y ahí la
+  // persona ya tiene las opciones en el combo, con su etiqueta.
+  descripcion: 'Obligatorio. Por qué se agrupa la recaudación.',
+  pistasIa:
+    'Catálogos: vendedor, atraccion, origen, pais, tipoRecorrido, guia. Cortes de ' +
+    'tiempo: dia, semana, mes, diaSemana (lunes, martes…), horaDelDia. La clave ' +
+    '`vendedor` es el colaborador que emitió el ticket: «por colaborador» y «por ' +
+    'vendedor» van las dos en esa clave. Es lo que distingue a este reporte: úsalo ' +
+    'para desgloses que los demás no ofrecen, y usa mes cuando pidan comparar dos ' +
+    'meses o ver la evolución mes a mes.',
   requerido: true,
   opciones: OPCIONES_AGRUPACION,
 };
@@ -97,9 +102,10 @@ const FILTRO_DIMENSION_2: EsquemaFiltro = {
   etiqueta: 'Cruzar con',
   tipo: 'opciones',
   descripcion:
-    'Opcional. Segunda agrupación, que convierte la tabla en un cruce: filas la ' +
-    'primera y columnas la segunda ("por atracción y por mes"). Debe ser distinta ' +
-    'de dimension.',
+    'Opcional. Segunda agrupación: la tabla pasa a ser un cruce, filas la primera ' +
+    'y columnas la segunda.',
+  pistasIa:
+    'Por ejemplo "por atracción y por mes". Debe ser distinta de dimension.',
   opciones: OPCIONES_AGRUPACION,
 };
 
@@ -108,9 +114,10 @@ const FILTRO_METRICA: EsquemaFiltro = {
   etiqueta: 'Medir',
   tipo: 'opciones',
   descripcion:
-    'Qué se mide y por qué se ordena de mayor a menor: total (dinero recaudado, ' +
-    'es lo predeterminado), tickets (cantidad de tickets vendidos) o personas ' +
-    '(visitantes que ingresaron).',
+    'Qué se mide y por qué se ordena, de mayor a menor: total, tickets o personas.',
+  pistasIa:
+    'total es el dinero recaudado y lo predeterminado; tickets, la cantidad ' +
+    'vendida; personas, los visitantes que ingresaron.',
   opciones: METRICAS.map((metrica) => ({
     valor: metrica,
     etiqueta: ETIQUETA_METRICA[metrica],
@@ -122,10 +129,12 @@ const FILTRO_DIA_SEMANA: EsquemaFiltro = {
   etiqueta: 'Solo los',
   tipo: 'opciones',
   descripcion:
-    'Opcional. Deja únicamente las ventas de ese día de la semana. Es lo que ' +
-    'responde a "qué guía trabajó más los sábados" o "cuánto se vende los lunes": ' +
-    'agrupa por lo que se pregunte y filtra por el día. No lo confundas con ' +
-    'dimension: diaSemana, que en vez de filtrar desglosa los siete días.',
+    'Opcional. Deja únicamente la recaudación de ese día de la semana.',
+  pistasIa:
+    'Es lo que responde a "qué guía trabajó más los sábados" o "cuánto se vende ' +
+    'los lunes": agrupa por lo que se pregunte y filtra por el día. No lo ' +
+    'confundas con dimension: diaSemana, que en vez de filtrar desglosa los siete ' +
+    'días.',
   opciones: DIAS_SEMANA.map((dia, indice) => ({
     valor: DIAS_SEMANA_CLAVE[indice],
     etiqueta: `${dia[0].toLocaleUpperCase('es')}${dia.slice(1)}`,
@@ -136,9 +145,8 @@ const FILTRO_TOPE: EsquemaFiltro = {
   clave: 'tope',
   etiqueta: 'Mostrar solo',
   tipo: 'numero',
-  descripcion:
-    'Opcional. Cuántas filas mostrar, ya ordenadas de mayor a menor. Es lo que ' +
-    'responde a "los 5 que más vendieron" o "top 10".',
+  descripcion: 'Opcional. Cuántas filas mostrar, ya ordenadas de mayor a menor.',
+  pistasIa: 'Es lo que responde a "los 5 que más vendieron" o "top 10".',
 };
 
 /** Valor de una fila según la métrica pedida. */
@@ -292,7 +300,7 @@ function seccionSimple(
 
   return {
     seccion: {
-      titulo: `Ventas por ${etiquetasDe(clave).columna.toLowerCase()}`,
+      titulo: `Recaudación por ${etiquetasDe(clave).columna.toLowerCase()}`,
       columnas,
       filas: reparto.filas,
       totales: totalesDe(columnas, reparto.filas),
@@ -336,7 +344,9 @@ function seccionCruzada(
   const columnasVisibles = [...peso.entries()]
     .sort((a, b) =>
       esClaveTiempo(clave2)
-        ? (ordenDeColumna.get(a[0]) ?? '').localeCompare(ordenDeColumna.get(b[0]) ?? '')
+        ? (ordenDeColumna.get(a[0]) ?? '').localeCompare(
+            ordenDeColumna.get(b[0]) ?? '',
+          )
         : b[1].comparedTo(a[1]),
     )
     .slice(0, MAX_COLUMNAS)
@@ -344,7 +354,9 @@ function seccionCruzada(
   const columnasOcultas = peso.size - columnasVisibles.length;
 
   const esDinero = metrica === 'total';
-  const formatoCelda = (esDinero ? 'moneda' : 'entero') as ColumnaReporte['formato'];
+  const formatoCelda = (
+    esDinero ? 'moneda' : 'entero'
+  ) as ColumnaReporte['formato'];
 
   const columnas: ColumnaReporte[] = [
     columnaGrupo(clave, 0.24),
@@ -366,7 +378,12 @@ function seccionCruzada(
           },
         ]
       : []),
-    { clave: 'totalFila', titulo: 'Total', formato: formatoCelda, total: 'suma' },
+    {
+      clave: 'totalFila',
+      titulo: 'Total',
+      formato: formatoCelda,
+      total: 'suma',
+    },
   ];
 
   const indicePorNombre = new Map(
@@ -375,11 +392,11 @@ function seccionCruzada(
 
   const porGrupo = new Map<string, FilaReporte & { orden: string }>();
   for (const fila of crudas) {
-    const actual =
-      porGrupo.get(fila.grupo1) ??
-      ({ grupo: fila.grupo1, orden: fila.orden1, totalFila: '0' } as FilaReporte & {
-        orden: string;
-      });
+    const actual = porGrupo.get(fila.grupo1) ?? {
+      grupo: fila.grupo1,
+      orden: fila.orden1,
+      totalFila: '0',
+    };
 
     const columna = indicePorNombre.get(fila.grupo2 ?? '') ?? 'otros';
     const acumular = (destino: string) => {
@@ -400,7 +417,12 @@ function seccionCruzada(
       : Number(b.totalFila ?? 0) - Number(a.totalFila ?? 0),
   );
 
-  const reparto = repartir(ordenadas, tope, limiteFilas, etiquetasDe(clave).plural);
+  const reparto = repartir(
+    ordenadas,
+    tope,
+    limiteFilas,
+    etiquetasDe(clave).plural,
+  );
   // `orden` era solo para ordenar: no es una columna y no debe viajar.
   const filas = reparto.filas.map(({ orden: _orden, ...fila }) => fila);
 
@@ -427,16 +449,23 @@ function seccionCruzada(
 
 export const ventasAMedida: DefinicionReporte = {
   clave: 'ventas-a-medida',
-  titulo: 'Ventas a medida',
+  titulo: 'Recaudación a medida',
+  // En la tarjeta del catálogo esto sale recortado a dos líneas, así que las dos
+  // primeras tienen que decir para qué sirve. El párrafo de desempate —cuándo
+  // preferirlo sobre otro reporte— es criterio para el intérprete y vive en
+  // `pistasIa`, donde no le roba el lugar a lo que la persona necesita leer.
   descripcion:
-    'Desglose de ventas por la agrupación que se pida, en vez de una fija. Elígelo ' +
-    'cuando la petición pida un corte que ningún otro reporte del catálogo ofrece: ' +
-    'por guía, por tipo de recorrido, por mes, por semana, por día de la semana o ' +
-    'por hora del día, un cruce de dos agrupaciones ("por atracción y por país") o ' +
-    'un top N ("los 5 vendedores que más recaudaron"). Es también el único que puede ' +
-    'comparar dos meses entre sí: agrupando por mes con un rango que los cubra. Para ' +
-    'los cortes que ya tienen reporte propio —vendedor, atracción, origen, forma de ' +
-    'pago, tipo de visitante— prefiere ese, que trae secciones y notas específicas.',
+    'Desglose por la agrupación que se pida, en vez de una fija. Permite cruzar ' +
+    'dos y pedir un top N.',
+  pistasIa:
+    'Agrupa por guía, tipo de recorrido, mes, semana, día de la semana u hora del ' +
+    'día. Elígelo cuando la petición pida un corte que ningún otro reporte del catálogo ' +
+    'ofrece, un cruce de dos agrupaciones ("por atracción y por país") o un top N ' +
+    '("los 5 colaboradores que más recaudaron"). Es también el único que puede ' +
+    'comparar dos meses entre sí: agrupando por mes con un rango que los cubra. ' +
+    'Para los cortes que ya tienen reporte propio —colaborador (al que se le decía ' +
+    '«vendedor»), atracción, origen, forma de pago, tipo de visitante— prefiere ' +
+    'ese, que trae secciones y notas específicas.',
   categoria: 'Tickets',
   moduloOrigen: 'EmisionTickets',
   orientacionSugerida: 'vertical',
@@ -489,7 +518,7 @@ export const ventasAMedida: DefinicionReporte = {
     if (dimensionDeCatalogo && crudas.some((fila) => fila.orden1 === '')) {
       notas.push(
         `«${DIMENSIONES[dimension].etiquetaNula}» no es un valor del catálogo: agrupa las ` +
-          'ventas que no lo llevaban. Cuenta como una fila más y suma al total.',
+          'recaudación que no lo llevaba. Cuenta como una fila más y suma al total.',
       );
     }
 
@@ -498,7 +527,7 @@ export const ventasAMedida: DefinicionReporte = {
     // Decirlo evita que se lea como una falla del reporte.
     if (crudas.length === 0) {
       notas.unshift(
-        `No hubo ventas que cumplan estos filtros en el período ${filtros.etiquetaPeriodo}. ` +
+        `No hubo recaudación que cumpla estos filtros en el período ${filtros.etiquetaPeriodo}. ` +
           'Pruebe con un rango de fechas más amplio o con menos filtros.',
       );
     }
@@ -523,7 +552,7 @@ export const ventasAMedida: DefinicionReporte = {
       if (nota) notas.unshift(nota);
 
       return {
-        titulo: 'Ventas a medida',
+        titulo: 'Recaudación a medida',
         subtitulo: `${etiquetasDe(dimension).columna} cruzado con ${etiquetasDe(
           filtros.dimension2,
         ).columna.toLowerCase()}, midiendo ${ETIQUETA_METRICA[metrica].toLowerCase()}`,
@@ -548,7 +577,7 @@ export const ventasAMedida: DefinicionReporte = {
     if (nota) notas.unshift(nota);
 
     return {
-      titulo: 'Ventas a medida',
+      titulo: 'Recaudación a medida',
       subtitulo: `Agrupado por ${etiquetasDe(dimension).columna.toLowerCase()}, ordenado por ${
         ordenCronologico(dimension, tope)
           ? 'orden cronológico'

@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { CreateModuloDto } from './dto/create-modulo.dto';
@@ -87,7 +92,9 @@ export class ModulosService {
       include: {
         moduloAccion: {
           include: {
-            modulo: { include: { moduloPadre: { select: { id: true, nombre: true } } } },
+            modulo: {
+              include: { moduloPadre: { select: { id: true, nombre: true } } },
+            },
             accion: true,
           },
         },
@@ -114,7 +121,9 @@ export class ModulosService {
       porModulo.get(modulo.id).acciones.push(accion.nombre);
     }
 
-    return Array.from(porModulo.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
+    return Array.from(porModulo.values()).sort((a, b) =>
+      a.nombre.localeCompare(b.nombre),
+    );
   }
 
   async findOne(id: number) {
@@ -130,17 +139,25 @@ export class ModulosService {
     });
 
     if (!modulo) {
-      throw new NotFoundException(`No se encontró el módulo solicitado con el ID ${id}.`);
+      throw new NotFoundException(
+        `No se encontró el módulo solicitado con el ID ${id}.`,
+      );
     }
 
     return modulo;
   }
 
-  async update(id: number, updateModuloDto: UpdateModuloDto, ejecutor?: EjecutorInfo) {
+  async update(
+    id: number,
+    updateModuloDto: UpdateModuloDto,
+    ejecutor?: EjecutorInfo,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const modulo = await tx.modulo.findUnique({ where: { id } });
       if (!modulo) {
-        throw new NotFoundException(`No se encontró el módulo solicitado con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró el módulo solicitado con el ID ${id}.`,
+        );
       }
 
       if (updateModuloDto.nombre) {
@@ -185,7 +202,9 @@ export class ModulosService {
     return this.prisma.$transaction(async (tx) => {
       const modulo = await tx.modulo.findUnique({ where: { id } });
       if (!modulo) {
-        throw new NotFoundException(`No se encontró el módulo solicitado con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró el módulo solicitado con el ID ${id}.`,
+        );
       }
 
       const moduloAnulado = await tx.modulo.update({
@@ -218,11 +237,15 @@ export class ModulosService {
     return this.prisma.$transaction(async (tx) => {
       const modulo = await tx.modulo.findUnique({ where: { id } });
       if (!modulo) {
-        throw new NotFoundException(`No se encontró el módulo solicitado con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró el módulo solicitado con el ID ${id}.`,
+        );
       }
 
       if (!modulo.anulado) {
-        throw new BadRequestException(`El módulo '${modulo.nombre}' ya se encuentra activo.`);
+        throw new BadRequestException(
+          `El módulo '${modulo.nombre}' ya se encuentra activo.`,
+        );
       }
 
       const moduloActivado = await tx.modulo.update({

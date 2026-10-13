@@ -14,7 +14,10 @@ import {
   resolverPaginacion,
 } from '../common/utils/paginacion.util';
 import { AlmacenamientoImagenesService } from './almacenamiento-imagenes.service';
-import { ActualizarActividadDto, CrearActividadDto } from './dto/crear-actividad.dto';
+import {
+  ActualizarActividadDto,
+  CrearActividadDto,
+} from './dto/crear-actividad.dto';
 import { QueryActividadDto } from './dto/query-actividad.dto';
 
 const INCLUDE_DETALLE = {
@@ -55,10 +58,14 @@ export class ActividadesService {
    * tener `Editar` habilita publicar y mantener lo propio, no tocar lo ajeno.
    */
   private async exigirAutoria(id: number, ejecutor?: EjecutorInfo) {
-    const actividad = await this.prisma.actividadesParque.findUnique({ where: { id } });
+    const actividad = await this.prisma.actividadesParque.findUnique({
+      where: { id },
+    });
 
     if (!actividad) {
-      throw new NotFoundException(`No se encontró la actividad con el ID ${id}.`);
+      throw new NotFoundException(
+        `No se encontró la actividad con el ID ${id}.`,
+      );
     }
 
     if (!ejecutor?.id || actividad.idUsuarioAutor !== ejecutor.id) {
@@ -105,7 +112,9 @@ export class ActividadesService {
 
   async crear(dto: CrearActividadDto, ejecutor?: EjecutorInfo) {
     if (!ejecutor?.id) {
-      throw new BadRequestException('No se pudo determinar el autor de la publicación.');
+      throw new BadRequestException(
+        'No se pudo determinar el autor de la publicación.',
+      );
     }
 
     const fechaInicio = new Date(dto.fechaInicio);
@@ -114,7 +123,9 @@ export class ActividadesService {
 
     return this.prisma.$transaction(async (tx) => {
       if (dto.idSectorParque) {
-        const sector = await tx.sectorParque.findUnique({ where: { id: dto.idSectorParque } });
+        const sector = await tx.sectorParque.findUnique({
+          where: { id: dto.idSectorParque },
+        });
         if (!sector || sector.anulado) {
           throw new BadRequestException(
             `El sector con ID ${dto.idSectorParque} no existe o está anulado.`,
@@ -169,8 +180,14 @@ export class ActividadesService {
    * autor pueda reprogramarlas.
    */
   async findAll(query: QueryActividadDto, idUsuario?: number) {
-    const { buscar, idSectorParque, idUsuarioAutor, incluirAnuladas, soloAnuladas, soloMias } =
-      query || {};
+    const {
+      buscar,
+      idSectorParque,
+      idUsuarioAutor,
+      incluirAnuladas,
+      soloAnuladas,
+      soloMias,
+    } = query || {};
     const paginacion = resolverPaginacion(query, PAGINACION_ACTIVIDADES);
     const ahora = this.ahoraReal();
 
@@ -245,7 +262,9 @@ export class ActividadesService {
     });
 
     if (!actividad) {
-      throw new NotFoundException(`No se encontró la actividad con el ID ${id}.`);
+      throw new NotFoundException(
+        `No se encontró la actividad con el ID ${id}.`,
+      );
     }
 
     const ahora = this.ahoraReal();
@@ -254,35 +273,55 @@ export class ActividadesService {
 
     // Una publicación fuera de su ventana no se muestra a terceros, aunque
     // tengan permiso: la ventana es justamente lo que el autor controla.
-    if (!esAutor && (conEstado.expirada || conEstado.programada || actividad.anulado)) {
-      throw new NotFoundException(`No se encontró la actividad con el ID ${id}.`);
+    if (
+      !esAutor &&
+      (conEstado.expirada || conEstado.programada || actividad.anulado)
+    ) {
+      throw new NotFoundException(
+        `No se encontró la actividad con el ID ${id}.`,
+      );
     }
 
     return { ...conEstado, esAutor };
   }
 
-  async actualizar(id: number, dto: ActualizarActividadDto, ejecutor?: EjecutorInfo) {
+  async actualizar(
+    id: number,
+    dto: ActualizarActividadDto,
+    ejecutor?: EjecutorInfo,
+  ) {
     const actual = await this.exigirAutoria(id, ejecutor);
 
     if (actual.anulado) {
-      throw new BadRequestException('No se puede editar una publicación anulada.');
+      throw new BadRequestException(
+        'No se puede editar una publicación anulada.',
+      );
     }
 
-    const fechaInicio = dto.fechaInicio ? new Date(dto.fechaInicio) : actual.fechaInicio;
-    const fechaFin = dto.fechaFin !== undefined
-      ? dto.fechaFin
-        ? new Date(dto.fechaFin)
-        : null
-      : actual.fechaFin;
+    const fechaInicio = dto.fechaInicio
+      ? new Date(dto.fechaInicio)
+      : actual.fechaInicio;
+    const fechaFin =
+      dto.fechaFin !== undefined
+        ? dto.fechaFin
+          ? new Date(dto.fechaFin)
+          : null
+        : actual.fechaFin;
     this.validarVentana(fechaInicio, fechaFin);
 
     return this.prisma.$transaction(async (tx) => {
       const actualizada = await tx.actividadesParque.update({
         where: { id },
         data: {
-          ...(dto.nombreActividad ? { nombreActividad: dto.nombreActividad.trim() } : {}),
-          ...(dto.descripcionActividad ? { descripcionActividad: dto.descripcionActividad } : {}),
-          ...(dto.idSectorParque !== undefined ? { idSectorParque: dto.idSectorParque } : {}),
+          ...(dto.nombreActividad
+            ? { nombreActividad: dto.nombreActividad.trim() }
+            : {}),
+          ...(dto.descripcionActividad
+            ? { descripcionActividad: dto.descripcionActividad }
+            : {}),
+          ...(dto.idSectorParque !== undefined
+            ? { idSectorParque: dto.idSectorParque }
+            : {}),
           ...(dto.idUsuarioResponsable !== undefined
             ? { idUsuarioResponsable: dto.idUsuarioResponsable }
             : {}),
@@ -369,7 +408,12 @@ export class ActividadesService {
 
   async agregarImagen(
     idActividad: number,
-    archivo: { originalname: string; buffer: Buffer; mimetype: string; size: number },
+    archivo: {
+      originalname: string;
+      buffer: Buffer;
+      mimetype: string;
+      size: number;
+    },
     ejecutor?: EjecutorInfo,
   ) {
     await this.exigirAutoria(idActividad, ejecutor);
@@ -397,12 +441,22 @@ export class ActividadesService {
         orden: (ultima?.orden ?? -1) + 1,
         fechaCreacion: getFechaUTC6(),
       },
-      select: { id: true, archivo: true, nombreOriginal: true, mimeType: true, orden: true },
+      select: {
+        id: true,
+        archivo: true,
+        nombreOriginal: true,
+        mimeType: true,
+        orden: true,
+      },
     });
   }
 
   /** Datos necesarios para servir el archivo, con la misma regla de visibilidad. */
-  async obtenerImagenParaDescarga(idActividad: number, idImagen: number, idUsuario?: number) {
+  async obtenerImagenParaDescarga(
+    idActividad: number,
+    idImagen: number,
+    idUsuario?: number,
+  ) {
     await this.findOne(idActividad, idUsuario);
 
     const imagen = await this.prisma.imagenActividad.findFirst({
@@ -416,7 +470,11 @@ export class ActividadesService {
     return { imagen, ruta: this.almacenamiento.rutaDe(imagen.archivo) };
   }
 
-  async eliminarImagen(idActividad: number, idImagen: number, ejecutor?: EjecutorInfo) {
+  async eliminarImagen(
+    idActividad: number,
+    idImagen: number,
+    ejecutor?: EjecutorInfo,
+  ) {
     await this.exigirAutoria(idActividad, ejecutor);
 
     const imagen = await this.prisma.imagenActividad.findFirst({

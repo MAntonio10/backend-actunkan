@@ -1,4 +1,11 @@
-import { IsInt, IsNotEmpty, IsNumber, IsPositive, Max, Min } from 'class-validator';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsPositive,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class ActualizarTarifaDto {
   @IsNotEmpty({ message: 'La atracción es obligatoria.' })
@@ -17,7 +24,10 @@ export class ActualizarTarifaDto {
   idTipoVisitante: number;
 
   @IsNotEmpty({ message: 'El precio es obligatorio.' })
-  @IsNumber({ maxDecimalPlaces: 4 }, { message: 'El precio debe ser un número con máximo 4 decimales.' })
+  @IsNumber(
+    { maxDecimalPlaces: 4 },
+    { message: 'El precio debe ser un número con máximo 4 decimales.' },
+  )
   @Min(0, { message: 'El precio no puede ser negativo.' })
   @Max(99999999999999, { message: 'El precio excede el máximo permitido.' })
   precio: number;
@@ -25,7 +35,10 @@ export class ActualizarTarifaDto {
 
 export class ActualizarTarifaGuiaDto {
   @IsNotEmpty({ message: 'El precio del ticket de guía es obligatorio.' })
-  @IsNumber({ maxDecimalPlaces: 4 }, { message: 'El precio debe ser un número con máximo 4 decimales.' })
+  @IsNumber(
+    { maxDecimalPlaces: 4 },
+    { message: 'El precio debe ser un número con máximo 4 decimales.' },
+  )
   @Min(0, { message: 'El precio no puede ser negativo.' })
   @Max(99999999999999, { message: 'El precio excede el máximo permitido.' })
   precio: number;

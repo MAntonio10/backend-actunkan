@@ -87,9 +87,12 @@ export function resolverPaginacion(
   query?: PaginacionQuery,
   opciones: OpcionesPaginacion = PAGINACION_POR_DEFECTO,
 ): PaginacionResuelta {
-  const pagina = query?.pagina && query.pagina > 0 ? Math.floor(query.pagina) : 1;
+  const pagina =
+    query?.pagina && query.pagina > 0 ? Math.floor(query.pagina) : 1;
   const solicitado =
-    query?.limite && query.limite > 0 ? Math.floor(query.limite) : opciones.limitePorDefecto;
+    query?.limite && query.limite > 0
+      ? Math.floor(query.limite)
+      : opciones.limitePorDefecto;
   const limite = Math.min(solicitado, opciones.limiteMaximo);
 
   return { pagina, limite, skip: (pagina - 1) * limite, take: limite };

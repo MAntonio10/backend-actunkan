@@ -15,11 +15,13 @@ import { seccionPorDimension } from './seccion-dimension';
  */
 export const ventasPorAtraccion: DefinicionReporte = {
   clave: 'ventas-por-atraccion',
-  titulo: 'Ventas por atracción',
+  titulo: 'Recaudación por atracción',
   descripcion:
-    'Comparación de lo recaudado en cada atracción del parque (cuevas, mariposario) ' +
-    'durante el período, con un segundo desglose por tipo de recorrido (corto o largo). ' +
-    'Responde a preguntas sobre ubicación, lugar o atracción visitada.',
+    'Comparación de lo recaudado en cada atracción, con un segundo desglose por tipo ' +
+    'de recorrido.',
+  pistasIa:
+    'Atracciones: cuevas y mariposario; recorridos: corto y largo. Responde a ' +
+    'preguntas sobre ubicación, lugar o atracción visitada.',
   categoria: 'Tickets',
   moduloOrigen: 'EmisionTickets',
   orientacionSugerida: 'vertical',
@@ -38,13 +40,13 @@ export const ventasPorAtraccion: DefinicionReporte = {
     ]);
 
     return {
-      titulo: 'Ventas por atracción',
+      titulo: 'Recaudación por atracción',
       periodo: periodoDe(filtros),
       filtrosAplicados: filtros.aplicados,
       kpis: [
         kpiMoneda('Recaudado', metricas.recaudado),
         kpiEntero('Personas', metricas.personas),
-        kpiEntero('Atracciones con venta', porAtraccion.filas.length),
+        kpiEntero('Atracciones con recaudación', porAtraccion.filas.length),
       ],
       secciones: [porAtraccion, porRecorrido],
       orientacion: 'vertical',

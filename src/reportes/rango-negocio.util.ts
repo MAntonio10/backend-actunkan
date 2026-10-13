@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { getFechaUTC6 } from '../common/utils/date.util';
+import { diaDeNegocio } from '../common/utils/date.util';
 import { textoSeguroParaMensaje } from './formato.util';
 
 /**
@@ -21,7 +21,16 @@ import { textoSeguroParaMensaje } from './formato.util';
  * offset a estos bordes. Nada más.
  */
 
-/** Desfase del negocio respecto a UTC. El mismo que aplica `getFechaUTC6()` al escribir. */
+/**
+ * Desfase del negocio respecto a UTC, para la expresión `DATEADD` que haría falta si
+ * algún día el almacenamiento pasara a UTC real (ver la nota de arriba).
+ *
+ * Es un literal a propósito: va dentro de SQL, donde no hay base de zonas horarias.
+ * **La autoridad es `ZONA_NEGOCIO` en `common/utils/date.util`**, que saca el desfase
+ * del sistema; este número solo lo acompaña. Si Guatemala volviera a tener horario de
+ * verano —lo tuvo en 2006—, el código TypeScript se adapta solo y esta constante no,
+ * así que habría que reemplazarla por un desfase calculado por fecha antes de usarla.
+ */
 export const HORAS_UTC_NEGOCIO = -6;
 
 const FORMATO_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -76,7 +85,7 @@ export function finDelDiaNegocio(fechaIso: string): Date {
 
 /** Hoy según el negocio, no según UTC. */
 export function hoyNegocio(): string {
-  return getFechaUTC6().toISOString().slice(0, 10);
+  return diaDeNegocio();
 }
 
 /** Primer día del mes en curso, en formato ISO. */

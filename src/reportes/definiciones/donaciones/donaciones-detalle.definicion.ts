@@ -66,9 +66,11 @@ export const donacionesDetalle: DefinicionReporte = {
   clave: 'donaciones-detalle',
   titulo: 'Detalle de donaciones',
   descripcion:
-    'Listado de los recibos de donación del período, con folio, fecha, donante, quién la ' +
-    'recibió, a qué caja entró, estado y monto. Incluye los recibos anulados marcados ' +
-    'como tales. Sirve cuando se pide el detalle o el listado de donaciones.',
+    'Un renglón por recibo de donación: folio, fecha, donante, quién la recibió, a ' +
+    'qué caja entró, estado y monto.',
+  pistasIa:
+    'Incluye los recibos anulados, marcados como tales. Elígelo cuando pidan el ' +
+    'detalle o el listado de donaciones.',
   categoria: 'Donaciones',
   moduloOrigen: 'Donaciones',
   orientacionSugerida: 'vertical',

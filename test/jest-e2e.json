@@ -1,6 +1,8 @@
 {
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": ".",
+  "_comentario_maxWorkers": "Un solo worker, OBLIGATORIO. Estas suites comparten la base de desarrollo y cada una abre su propia caja; en paralelo, la guarda de pre-vuelo de cada suite ve la caja de otra y aborta. Con 5 suites eso daba 80 fallos que no eran del código.",
+  "maxWorkers": 1,
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "transform": {

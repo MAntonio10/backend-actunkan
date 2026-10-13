@@ -218,7 +218,9 @@ describe('IaClienteService', () => {
       ok: false,
       status: 429,
       // Espera larga: no se reintenta, pero sí se explica bien.
-      headers: { get: (n: string) => (n === 'x-ratelimit-reset-tokens' ? '56s' : null) },
+      headers: {
+        get: (n: string) => (n === 'x-ratelimit-reset-tokens' ? '56s' : null),
+      },
       text: async () =>
         'Rate limit reached for model on tokens per minute (TPM). ' +
         'Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing',

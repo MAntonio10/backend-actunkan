@@ -58,10 +58,11 @@ export const arqueoDeCaja: DefinicionReporte = {
   clave: 'arqueo-de-caja',
   titulo: 'Arqueo de caja',
   descripcion:
-    'Arqueo detallado de un turno de caja concreto: monto inicial, ventas en efectivo, ' +
-    'donaciones recibidas, monto esperado, monto contado y la diferencia, con el listado ' +
-    'de las donaciones del turno. Requiere indicar de qué caja o turno se trata. Solo lo ' +
-    'puede consultar un supervisor.',
+    'Arqueo de un turno concreto: monto inicial, efectivo, donaciones, esperado, ' +
+    'contado y la diferencia.',
+  pistasIa:
+    'Incluye el listado de las donaciones del turno. Requiere indicar de qué caja o ' +
+    'turno se trata. Solo lo puede consultar un supervisor.',
   categoria: 'Cajas',
   moduloOrigen: 'Cajas',
   soloSupervisor: true,
@@ -177,7 +178,7 @@ export const arqueoDeCaja: DefinicionReporte = {
         monto: montoInicial.toFixed(4),
       },
       {
-        concepto: 'Ventas cobradas en efectivo',
+        concepto: 'Recaudación cobrada en efectivo',
         documentos: ventas._count._all ?? 0,
         monto: ventasEfectivo.toFixed(4),
       },
@@ -221,7 +222,7 @@ export const arqueoDeCaja: DefinicionReporte = {
         kpiMoneda(
           'Discrepancia offline',
           discrepancia,
-          `${ticketsDesviados} venta(s) cobrada(s) por un importe distinto al de la tarifa`,
+          `${ticketsDesviados} recaudación(es) cobrada(s) por un importe distinto al de la tarifa`,
         ),
       );
     }
@@ -267,8 +268,8 @@ export const arqueoDeCaja: DefinicionReporte = {
       secciones,
       orientacion: 'vertical',
       notas: [
-        'El monto esperado es el inicial más las ventas cobradas en efectivo más las ' +
-          'donaciones. Las ventas con tarjeta no entran: no son dinero en el cajón.',
+        'El monto esperado es el inicial más la recaudación cobrada en efectivo más las ' +
+          'donaciones. La recaudación con tarjeta no entra: no es dinero en el cajón.',
         'La discrepancia offline no altera el monto esperado. En el cajón está lo que se ' +
           'cobró, no lo que se debió cobrar; restarla haría aparecer el error del cobro ' +
           'como un error del cajero al contar.',

@@ -10,19 +10,28 @@ const EJECUTOR = { id: 1, email: 'qa@test.com' };
 const crearTxMock = () => {
   const tx: any = {
     aperturaCaja: {
-      findUnique: jest
-        .fn()
-        .mockResolvedValue({ id: 9, anulado: false, estado: { nombre: 'Abierta' } }),
+      findUnique: jest.fn().mockResolvedValue({
+        id: 9,
+        anulado: false,
+        estado: { nombre: 'Abierta' },
+      }),
     },
     correlativo: { upsert: jest.fn().mockResolvedValue({ ultimoNumero: 7 }) },
     donacion: {
       create: jest.fn(({ data }: any) => Promise.resolve({ id: 30, ...data })),
       findUnique: jest.fn(),
       update: jest.fn(({ data }: any) =>
-        Promise.resolve({ id: 30, numeroRecibo: 'DON-2026-000007', monto: 100, ...data }),
+        Promise.resolve({
+          id: 30,
+          numeroRecibo: 'DON-2026-000007',
+          monto: 100,
+          ...data,
+        }),
       ),
     },
-    usuario: { findUnique: jest.fn().mockResolvedValue({ id: 1, nombre: 'QA Tester' }) },
+    usuario: {
+      findUnique: jest.fn().mockResolvedValue({ id: 1, nombre: 'QA Tester' }),
+    },
   };
   return tx;
 };
@@ -37,11 +46,18 @@ describe('DonacionesService', () => {
     tx = crearTxMock();
     prisma = {
       $transaction: jest.fn((cb: any) => cb(tx)),
-      donacion: { findMany: jest.fn(), findUnique: jest.fn(), count: jest.fn(), aggregate: jest.fn() },
+      donacion: {
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+        count: jest.fn(),
+        aggregate: jest.fn(),
+      },
     };
     cajasService = { obtenerActual: jest.fn().mockResolvedValue({ id: 9 }) };
 
-    jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
+    jest
+      .spyOn(BitacoraService, 'registrarEnTransaccion')
+      .mockResolvedValue({} as any);
 
     const modulo: TestingModule = await Test.createTestingModule({
       providers: [
@@ -58,7 +74,10 @@ describe('DonacionesService', () => {
 
   describe('crear', () => {
     it('genera el folio con la serie DON, independiente de los tickets', async () => {
-      const res = await service.crear({ monto: 100, nombreDonante: 'Ana' }, EJECUTOR);
+      const res = await service.crear(
+        { monto: 100, nombreDonante: 'Ana' },
+        EJECUTOR,
+      );
 
       const anio = new Date().getFullYear();
       expect(res.numeroRecibo).toBe(`DON-${anio}-000007`);
@@ -76,7 +95,10 @@ describe('DonacionesService', () => {
       expect(res.idUsuario).toBe(1);
       expect(BitacoraService.registrarEnTransaccion).toHaveBeenCalledWith(
         tx,
-        expect.objectContaining({ accion: 'REGISTRAR_DONACION', modulo: 'Donaciones' }),
+        expect.objectContaining({
+          accion: 'REGISTRAR_DONACION',
+          modulo: 'Donaciones',
+        }),
       );
     });
 
@@ -87,14 +109,19 @@ describe('DonacionesService', () => {
     });
 
     it('guarda el nombre sin espacios sobrantes', async () => {
-      const res = await service.crear({ monto: 50, nombreDonante: '  Ana Lucía  ' }, EJECUTOR);
+      const res = await service.crear(
+        { monto: 50, nombreDonante: '  Ana Lucía  ' },
+        EJECUTOR,
+      );
       expect(res.nombreDonante).toBe('Ana Lucía');
     });
 
     it('rechaza registrar si no hay caja abierta', async () => {
       cajasService.obtenerActual.mockResolvedValue(null);
 
-      await expect(service.crear({ monto: 100 }, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.crear({ monto: 100 }, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(tx.donacion.create).not.toHaveBeenCalled();
     });
 
@@ -105,12 +132,16 @@ describe('DonacionesService', () => {
         estado: { nombre: 'Cerrada' },
       });
 
-      await expect(service.crear({ monto: 100 }, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.crear({ monto: 100 }, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(tx.donacion.create).not.toHaveBeenCalled();
     });
 
     it('rechaza si no se puede identificar al usuario', async () => {
-      await expect(service.crear({ monto: 100 }, undefined)).rejects.toThrow(BadRequestException);
+      await expect(service.crear({ monto: 100 }, undefined)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -129,7 +160,9 @@ describe('DonacionesService', () => {
       expect(res.anulado).toBe(true);
       expect(res.motivoAnulacion).toBe('Error de captura');
       expect(tx.donacion.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ anulado: true }) }),
+        expect.objectContaining({
+          data: expect.objectContaining({ anulado: true }),
+        }),
       );
     });
 
@@ -147,7 +180,9 @@ describe('DonacionesService', () => {
         estado: { nombre: 'Cerrada' },
       });
 
-      await expect(service.anular(30, undefined, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.anular(30, undefined, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(tx.donacion.update).not.toHaveBeenCalled();
     });
 
@@ -159,13 +194,17 @@ describe('DonacionesService', () => {
         idAperturaCaja: 9,
       });
 
-      await expect(service.anular(30, undefined, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.anular(30, undefined, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('rechaza una donación inexistente', async () => {
       tx.donacion.findUnique.mockResolvedValue(null);
 
-      await expect(service.anular(404, undefined, EJECUTOR)).rejects.toThrow(NotFoundException);
+      await expect(service.anular(404, undefined, EJECUTOR)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -179,8 +218,14 @@ describe('DonacionesService', () => {
       prisma.donacion.findMany.mockResolvedValue([]);
       prisma.donacion.count.mockResolvedValue(vigentes.count + anulados.count);
       prisma.donacion.aggregate
-        .mockResolvedValueOnce({ _sum: { monto: vigentes.monto }, _count: { _all: vigentes.count } })
-        .mockResolvedValueOnce({ _sum: { monto: anulados.monto }, _count: { _all: anulados.count } });
+        .mockResolvedValueOnce({
+          _sum: { monto: vigentes.monto },
+          _count: { _all: vigentes.count },
+        })
+        .mockResolvedValueOnce({
+          _sum: { monto: anulados.monto },
+          _count: { _all: anulados.count },
+        });
     };
 
     const whereDe = (llamada: number) =>
@@ -189,7 +234,7 @@ describe('DonacionesService', () => {
     it('suma solo los vigentes aunque el listado incluya anulados', async () => {
       prepararAgregados({ monto: 300, count: 2 }, { monto: 500, count: 1 });
 
-      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+      const res = await service.findAll({ incluirAnulados: 'true' });
 
       expect(res.metricas.montoRecaudado).toBe('300');
       expect(res.metricas.recibosVigentes).toBe(2);
@@ -198,7 +243,7 @@ describe('DonacionesService', () => {
     it('el agregado de recaudación fuerza anulado: false', async () => {
       prepararAgregados({ monto: 300, count: 2 }, { monto: 0, count: 0 });
 
-      await service.findAll({ incluirAnulados: 'true' } as any);
+      await service.findAll({ incluirAnulados: 'true' });
 
       expect(whereDe(0).anulado).toBe(false);
     });
@@ -207,7 +252,7 @@ describe('DonacionesService', () => {
     it('expone lo anulado por separado, para que la diferencia se explique', async () => {
       prepararAgregados({ monto: 300, count: 2 }, { monto: 500, count: 1 });
 
-      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+      const res = await service.findAll({ incluirAnulados: 'true' });
 
       expect(res.metricas.recibosAnulados).toBe(1);
       expect(res.metricas.montoAnulado).toBe('500');
@@ -217,7 +262,7 @@ describe('DonacionesService', () => {
     it('totalRecibos sigue cuadrando con la paginación', async () => {
       prepararAgregados({ monto: 300, count: 2 }, { monto: 500, count: 1 });
 
-      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+      const res = await service.findAll({ incluirAnulados: 'true' });
 
       expect(res.metricas.totalRecibos).toBe(res.total);
       expect(res.total).toBe(3);
@@ -235,7 +280,7 @@ describe('DonacionesService', () => {
         _count: { _all: 2 },
       });
 
-      const res = await service.findAll({} as any);
+      const res = await service.findAll({});
 
       expect(res.metricas.montoRecaudado).toBe('300');
       expect(res.metricas.recibosAnulados).toBe(0);
@@ -248,7 +293,7 @@ describe('DonacionesService', () => {
     it('totalRecibos siempre es vigentes + anulados', async () => {
       prepararAgregados({ monto: 300, count: 2 }, { monto: 500, count: 1 });
 
-      const res = await service.findAll({ incluirAnulados: 'true' } as any);
+      const res = await service.findAll({ incluirAnulados: 'true' });
 
       expect(res.metricas.recibosVigentes + res.metricas.recibosAnulados).toBe(
         res.metricas.totalRecibos,
@@ -258,7 +303,7 @@ describe('DonacionesService', () => {
     it('los filtros del listado también acotan la recaudación', async () => {
       prepararAgregados({ monto: 120, count: 1 }, { monto: 0, count: 0 });
 
-      await service.findAll({ idAperturaCaja: 9, buscar: 'Fundación' } as any);
+      await service.findAll({ idAperturaCaja: 9, buscar: 'Fundación' });
 
       expect(whereDe(0)).toMatchObject({ idAperturaCaja: 9, anulado: false });
       expect(whereDe(0).OR).toBeDefined();
@@ -278,22 +323,25 @@ describe('DonacionesService', () => {
     });
 
     it('reparte de 20 en 20 por defecto', async () => {
-      const res = await service.findAll({} as any);
+      const res = await service.findAll({});
 
       expect(res.limite).toBe(20);
       expect(args().take).toBe(20);
     });
 
     it('traduce página y límite a skip/take', async () => {
-      await service.findAll({ pagina: 2, limite: 30 } as any);
+      await service.findAll({ pagina: 2, limite: 30 });
 
       expect(args()).toMatchObject({ skip: 30, take: 30 });
     });
 
     it('ordena por fecha con desempate por id', async () => {
-      await service.findAll({} as any);
+      await service.findAll({});
 
-      expect(args().orderBy).toEqual([{ fechaCreacion: 'desc' }, { id: 'desc' }]);
+      expect(args().orderBy).toEqual([
+        { fechaCreacion: 'desc' },
+        { id: 'desc' },
+      ]);
     });
   });
 });

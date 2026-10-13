@@ -24,9 +24,13 @@ describe('SesionesService', () => {
   beforeEach(async () => {
     prisma = {
       sesionRefresh: {
-        create: jest.fn(({ data }: any) => Promise.resolve({ id: 10, ...data })),
+        create: jest.fn(({ data }: any) =>
+          Promise.resolve({ id: 10, ...data }),
+        ),
         findUnique: jest.fn(),
-        update: jest.fn(({ data }: any) => Promise.resolve({ id: 10, ...data })),
+        update: jest.fn(({ data }: any) =>
+          Promise.resolve({ id: 10, ...data }),
+        ),
         updateMany: jest.fn().mockResolvedValue({ count: 3 }),
         findMany: jest.fn().mockResolvedValue([]),
       },
@@ -36,10 +40,15 @@ describe('SesionesService', () => {
       loteOffline: { findFirst: jest.fn().mockResolvedValue(null) },
     };
 
-    jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
+    jest
+      .spyOn(BitacoraService, 'registrarEnTransaccion')
+      .mockResolvedValue({} as any);
 
     const modulo: TestingModule = await Test.createTestingModule({
-      providers: [SesionesService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        SesionesService,
+        { provide: PrismaService, useValue: prisma },
+      ],
     }).compile();
 
     service = modulo.get<SesionesService>(SesionesService);
@@ -60,14 +69,16 @@ describe('SesionesService', () => {
     it('dura 30 días con "Recordarme"', async () => {
       const { sesion } = await service.crear(1, true);
       const dias =
-        (sesion.fechaExpiracion.getTime() - sesion.fechaCreacion.getTime()) / 86_400_000;
+        (sesion.fechaExpiracion.getTime() - sesion.fechaCreacion.getTime()) /
+        86_400_000;
       expect(Math.round(dias)).toBe(30);
     });
 
     it('dura 24 horas sin "Recordarme"', async () => {
       const { sesion } = await service.crear(1, false);
       const horas =
-        (sesion.fechaExpiracion.getTime() - sesion.fechaCreacion.getTime()) / 3_600_000;
+        (sesion.fechaExpiracion.getTime() - sesion.fechaCreacion.getTime()) /
+        3_600_000;
       expect(Math.round(horas)).toBe(24);
     });
 
@@ -118,21 +129,27 @@ describe('SesionesService', () => {
 
     it('rechaza un token inexistente', async () => {
       prisma.sesionRefresh.findUnique.mockResolvedValue(null);
-      await expect(service.rotar('desconocido')).rejects.toThrow(UnauthorizedException);
+      await expect(service.rotar('desconocido')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('rechaza un token expirado', async () => {
       prisma.sesionRefresh.findUnique.mockResolvedValue(
         sesionVigente({ fechaExpiracion: desdeAhoraUTC6(-1000) }),
       );
-      await expect(service.rotar('vencido')).rejects.toThrow(UnauthorizedException);
+      await expect(service.rotar('vencido')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('rechaza si el usuario fue anulado', async () => {
       prisma.sesionRefresh.findUnique.mockResolvedValue(
         sesionVigente({ usuario: { ...USUARIO, anulado: true } }),
       );
-      await expect(service.rotar('token')).rejects.toThrow(UnauthorizedException);
+      await expect(service.rotar('token')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     /**
@@ -145,24 +162,33 @@ describe('SesionesService', () => {
         prisma.sesionRefresh.findUnique.mockResolvedValue(
           sesionVigente({ usuario: { ...USUARIO, anulado: true } }),
         );
-        prisma.loteOffline.findFirst.mockResolvedValue({ id: 7, estado: 'ACTIVO' });
+        prisma.loteOffline.findFirst.mockResolvedValue({
+          id: 7,
+          estado: 'ACTIVO',
+        });
       };
 
       it('puede rotar el refresh para poder liquidarlas', async () => {
         conLotePendiente();
 
-        await expect(service.rotar('token')).resolves.toHaveProperty('refreshToken');
+        await expect(service.rotar('token')).resolves.toHaveProperty(
+          'refreshToken',
+        );
       });
 
       it('el derecho está atado a que el lote siga activo y sin vencer', async () => {
         conLotePendiente();
         await service.rotar('token');
 
-        expect(prisma.loteOffline.findFirst.mock.calls[0][0].where).toMatchObject({
+        expect(
+          prisma.loteOffline.findFirst.mock.calls[0][0].where,
+        ).toMatchObject({
           idUsuario: USUARIO.id,
           estado: 'ACTIVO',
         });
-        expect(prisma.loteOffline.findFirst.mock.calls[0][0].where.expiraEn).toHaveProperty('gt');
+        expect(
+          prisma.loteOffline.findFirst.mock.calls[0][0].where.expiraEn,
+        ).toHaveProperty('gt');
       });
 
       // Sin nada que liquidar, la baja es total.
@@ -172,7 +198,9 @@ describe('SesionesService', () => {
         );
         prisma.loteOffline.findFirst.mockResolvedValue(null);
 
-        await expect(service.rotar('token')).rejects.toThrow(UnauthorizedException);
+        await expect(service.rotar('token')).rejects.toThrow(
+          UnauthorizedException,
+        );
       });
 
       it('queda registrado en bitácora que fue un usuario anulado', async () => {
@@ -188,9 +216,13 @@ describe('SesionesService', () => {
 
     // Reutilizar un token ya rotado delata que alguien más lo tiene.
     it('ante reutilización de un token revocado cierra TODAS las sesiones del usuario', async () => {
-      prisma.sesionRefresh.findUnique.mockResolvedValue(sesionVigente({ revocada: true }));
+      prisma.sesionRefresh.findUnique.mockResolvedValue(
+        sesionVigente({ revocada: true }),
+      );
 
-      await expect(service.rotar('robado')).rejects.toThrow(UnauthorizedException);
+      await expect(service.rotar('robado')).rejects.toThrow(
+        UnauthorizedException,
+      );
 
       expect(prisma.sesionRefresh.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -226,14 +258,18 @@ describe('SesionesService', () => {
       await service.revocarTodas(7, 'prueba');
 
       expect(prisma.sesionRefresh.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ idUsuario: 7 }) }),
+        expect.objectContaining({
+          where: expect.objectContaining({ idUsuario: 7 }),
+        }),
       );
     });
 
     it('cerrar una sesión ajena por id no hace nada', async () => {
       prisma.sesionRefresh.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.revocarPorId(1, 999)).rejects.toThrow(UnauthorizedException);
+      await expect(service.revocarPorId(1, 999)).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 });

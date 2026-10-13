@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
@@ -8,11 +12,22 @@ import {
   construirRespuestaPaginada,
   resolverPaginacion,
 } from '../common/utils/paginacion.util';
-import { ActualizarTarifaDto, ActualizarTarifaGuiaDto } from './dto/actualizar-tarifa.dto';
+import {
+  ActualizarTarifaDto,
+  ActualizarTarifaGuiaDto,
+} from './dto/actualizar-tarifa.dto';
 import { QueryHistoricoDto } from './dto/query-historico.dto';
 
 /** Única categoría a la que se le permite precio Q0. */
 export const CODIGO_NINO_MENOR = 'nino_menor';
+export const CODIGO_VISITANTE_ESPECIAL = 'visitante_especial';
+
+/**
+ * Categorías que entran sin pagar. Q0 sigue prohibido en el resto: un precio en
+ * cero puesto por error pasaría desapercibido y descuadraría el arqueo sin que
+ * nadie lo note, así que la excepción es explícita y corta.
+ */
+export const CODIGOS_GRATUITOS = [CODIGO_NINO_MENOR, CODIGO_VISITANTE_ESPECIAL];
 
 const INCLUDE_TARIFA = {
   atraccion: { select: { id: true, codigo: true, nombre: true } },
@@ -38,7 +53,11 @@ export class TarifasService {
     return this.prisma.tarifa.findMany({
       where: { vigenteHasta: null, anulado: false },
       include: INCLUDE_TARIFA,
-      orderBy: [{ idAtraccion: 'asc' }, { idOrigen: 'asc' }, { idTipoVisitante: 'asc' }],
+      orderBy: [
+        { idAtraccion: 'asc' },
+        { idOrigen: 'asc' },
+        { idTipoVisitante: 'asc' },
+      ],
     });
   }
 
@@ -106,9 +125,12 @@ export class TarifasService {
         );
       }
 
-      if (dto.precio <= 0 && tipoVisitante.codigo !== CODIGO_NINO_MENOR) {
+      if (
+        dto.precio <= 0 &&
+        !CODIGOS_GRATUITOS.includes(tipoVisitante.codigo)
+      ) {
         throw new BadRequestException(
-          `El precio de '${tipoVisitante.nombre}' debe ser mayor a 0. Solo la categoría de niño menor admite Q0.`,
+          `El precio de '${tipoVisitante.nombre}' debe ser mayor a 0. Solo las categorías gratuitas (niño menor de 7 años y visitante especial) admiten Q0.`,
         );
       }
 
@@ -157,15 +179,22 @@ export class TarifasService {
     });
   }
 
-  async actualizarTarifaGuia(dto: ActualizarTarifaGuiaDto, ejecutor?: EjecutorInfo) {
+  async actualizarTarifaGuia(
+    dto: ActualizarTarifaGuiaDto,
+    ejecutor?: EjecutorInfo,
+  ) {
     if (dto.precio <= 0) {
-      throw new BadRequestException('El precio del ticket de guía debe ser mayor a 0.');
+      throw new BadRequestException(
+        'El precio del ticket de guía debe ser mayor a 0.',
+      );
     }
 
     return this.prisma.$transaction(async (tx) => {
       const ahora = getFechaUTC6();
 
-      const vigente = await tx.tarifaGuia.findFirst({ where: { vigenteHasta: null } });
+      const vigente = await tx.tarifaGuia.findFirst({
+        where: { vigenteHasta: null },
+      });
       if (vigente) {
         await tx.tarifaGuia.update({
           where: { id: vigente.id },

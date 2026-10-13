@@ -49,11 +49,15 @@ async function nombresDe(
 }
 
 export const DIMENSIONES: Readonly<Record<ClaveDimension, Dimension>> = {
+  // La clave sigue siendo `vendedor` a propósito: viaja en las URLs de los
+  // reportes y queda escrita en la bitácora de cada generación, así que
+  // renombrarla dejaría ese historial apuntando a una dimensión inexistente.
+  // Lo que ve el usuario son las etiquetas, y esas sí dicen «colaborador».
   vendedor: {
     campo: 'idUsuario',
-    etiquetaColumna: 'Vendedor',
-    etiquetaPlural: 'vendedores',
-    etiquetaNula: 'Sin vendedor',
+    etiquetaColumna: 'Colaborador',
+    etiquetaPlural: 'colaboradores',
+    etiquetaNula: 'Sin colaborador',
     resolverNombres: (prisma, ids) =>
       nombresDe(
         (limpios) =>
@@ -201,8 +205,18 @@ export interface DimensionTiempo {
 }
 
 const MESES = [
-  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre',
 ];
 
 /**
@@ -210,7 +224,13 @@ const MESES = [
  * depender de @@DATEFIRST del servidor.
  */
 export const DIAS_SEMANA = [
-  'domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado',
+  'domingo',
+  'lunes',
+  'martes',
+  'miércoles',
+  'jueves',
+  'viernes',
+  'sábado',
 ];
 
 /** Sin tildes ni mayúsculas, que es como se escriben en una petición. */
@@ -229,7 +249,9 @@ export function indiceDiaSemana(valor: string): number | null {
   return indice >= 0 ? indice : null;
 }
 
-export const DIMENSIONES_TIEMPO: Readonly<Record<ClaveTiempo, DimensionTiempo>> = {
+export const DIMENSIONES_TIEMPO: Readonly<
+  Record<ClaveTiempo, DimensionTiempo>
+> = {
   dia: {
     expresion: Prisma.sql`CONVERT(char(10), t.fechaCreacion, 23)`,
     etiquetaColumna: 'Día',
@@ -257,7 +279,9 @@ export const DIMENSIONES_TIEMPO: Readonly<Record<ClaveTiempo, DimensionTiempo>> 
     presentar: (valor) => {
       const [anio, mes] = valor.split('-');
       const nombre = MESES[Number(mes) - 1];
-      return nombre ? `${nombre[0].toUpperCase()}${nombre.slice(1)} ${anio}` : valor;
+      return nombre
+        ? `${nombre[0].toUpperCase()}${nombre.slice(1)} ${anio}`
+        : valor;
     },
   },
   diaSemana: {

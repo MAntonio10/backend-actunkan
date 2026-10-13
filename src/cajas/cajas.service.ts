@@ -24,7 +24,7 @@ export interface EjecutorInfo {
   email?: string;
 }
 
-const ESTADO_ABIERTA = 'Abierta';
+export const ESTADO_ABIERTA = 'Abierta';
 const ESTADO_CERRADA = 'Cerrada';
 
 const INCLUDE_DETALLE = {
@@ -76,7 +76,9 @@ export class CajasService {
     if (!caja?.cierresCaja) return caja;
     return {
       ...caja,
-      cierresCaja: caja.cierresCaja.map((c: any) => this.ocultarArqueoDeCierre(c)),
+      cierresCaja: caja.cierresCaja.map((c: any) =>
+        this.ocultarArqueoDeCierre(c),
+      ),
     };
   }
 
@@ -89,7 +91,10 @@ export class CajasService {
     return nombreEjecutor;
   }
 
-  private async obtenerEstadoIdPorNombre(tx: any, nombre: string): Promise<number> {
+  private async obtenerEstadoIdPorNombre(
+    tx: any,
+    nombre: string,
+  ): Promise<number> {
     const estado = await tx.estadoCaja.findFirst({ where: { nombre } });
     if (!estado) {
       throw new BadRequestException(
@@ -117,7 +122,11 @@ export class CajasService {
    * Arqueo esperado de una apertura: monto inicial + ventas en efectivo + donaciones.
    * Toda la aritmética usa Decimal: con dinero, los flotantes de JS no son exactos.
    */
-  private async calcularArqueo(client: any, idApertura: number, montoInicial: any) {
+  private async calcularArqueo(
+    client: any,
+    idApertura: number,
+    montoInicial: any,
+  ) {
     const [ventas, donaciones] = await Promise.all([
       client.ticketPago.aggregate({
         _sum: { monto: true },
@@ -148,7 +157,10 @@ export class CajasService {
       ventasEfectivo,
       totalDonaciones,
       montoEsperado,
-      discrepanciaOffline: await this.calcularDiscrepanciaOffline(client, idApertura),
+      discrepanciaOffline: await this.calcularDiscrepanciaOffline(
+        client,
+        idApertura,
+      ),
     };
   }
 
@@ -184,7 +196,9 @@ export class CajasService {
     if (tickets === 0) return null;
 
     const montoCobrado = new Prisma.Decimal(desviados._sum.montoTotal ?? 0);
-    const montoRecalculado = new Prisma.Decimal(desviados._sum.montoRecalculado ?? 0);
+    const montoRecalculado = new Prisma.Decimal(
+      desviados._sum.montoRecalculado ?? 0,
+    );
 
     return {
       tickets,
@@ -197,45 +211,53 @@ export class CajasService {
 
   async abrirCaja(dto: AbrirCajaDto, ejecutor?: EjecutorInfo) {
     if (!ejecutor?.id) {
-      throw new BadRequestException('No se pudo determinar el usuario que abre la caja.');
+      throw new BadRequestException(
+        'No se pudo determinar el usuario que abre la caja.',
+      );
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const cajaAbierta = await this.buscarCajaAbierta(tx);
+    return this.prisma.$transaction(
+      async (tx) => {
+        const cajaAbierta = await this.buscarCajaAbierta(tx);
 
-      if (cajaAbierta) {
-        throw new ConflictException(
-          `Ya existe una caja abierta (ID ${cajaAbierta.id}). Debe cerrarse antes de abrir una nueva.`,
+        if (cajaAbierta) {
+          throw new ConflictException(
+            `Ya existe una caja abierta (ID ${cajaAbierta.id}). Debe cerrarse antes de abrir una nueva.`,
+          );
+        }
+
+        const idEstadoAbierta = await this.obtenerEstadoIdPorNombre(
+          tx,
+          ESTADO_ABIERTA,
         );
-      }
+        const ahora = getFechaUTC6();
 
-      const idEstadoAbierta = await this.obtenerEstadoIdPorNombre(tx, ESTADO_ABIERTA);
-      const ahora = getFechaUTC6();
+        const apertura = await tx.aperturaCaja.create({
+          data: {
+            idUsuario: ejecutor.id,
+            montoInicial: dto.montoInicial,
+            observaciones: dto.observaciones,
+            idEstado: idEstadoAbierta,
+            fechaCreacion: ahora,
+            fechaActualizacion: ahora,
+          },
+          include: INCLUDE_DETALLE,
+        });
 
-      const apertura = await tx.aperturaCaja.create({
-        data: {
-          idUsuario: ejecutor.id,
-          montoInicial: dto.montoInicial,
-          observaciones: dto.observaciones,
-          idEstado: idEstadoAbierta,
-          fechaCreacion: ahora,
-          fechaActualizacion: ahora,
-        },
-        include: INCLUDE_DETALLE,
-      });
+        await BitacoraService.registrarEnTransaccion(tx, {
+          idUsuario: ejecutor?.id,
+          usuarioNombre: await this.obtenerNombreEjecutor(tx, ejecutor),
+          accion: 'APERTURA_CAJA',
+          modulo: 'Cajas',
+          descripcion: `Se abrió la caja (ID ${apertura.id}) con un monto inicial de ${dto.montoInicial}.`,
+        });
 
-      await BitacoraService.registrarEnTransaccion(tx, {
-        idUsuario: ejecutor?.id,
-        usuarioNombre: await this.obtenerNombreEjecutor(tx, ejecutor),
-        accion: 'APERTURA_CAJA',
-        modulo: 'Cajas',
-        descripcion: `Se abrió la caja (ID ${apertura.id}) con un monto inicial de ${dto.montoInicial}.`,
-      });
-
-      return apertura;
-      // Serializable: sin este nivel, dos peticiones concurrentes pueden pasar
-      // ambas la verificación de "no hay caja abierta" y abrir dos cajas.
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        return apertura;
+        // Serializable: sin este nivel, dos peticiones concurrentes pueden pasar
+        // ambas la verificación de "no hay caja abierta" y abrir dos cajas.
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async findAll(query: QueryCajaDto, idUsuario?: number) {
@@ -299,10 +321,13 @@ export class CajasService {
     });
 
     if (!apertura) {
-      throw new NotFoundException(`No se encontró la caja solicitada con el ID ${id}.`);
+      throw new NotFoundException(
+        `No se encontró la caja solicitada con el ID ${id}.`,
+      );
     }
 
-    if (idUsuario === undefined || (await this.esSupervisor(idUsuario))) return apertura;
+    if (idUsuario === undefined || (await this.esSupervisor(idUsuario)))
+      return apertura;
     return this.ocultarArqueoDeCaja(apertura);
   }
 
@@ -311,7 +336,8 @@ export class CajasService {
    * de que una caja se reabrió para corregir un monto.
    */
   async historialCierres(query: QueryCierreDto) {
-    const { idUsuario, fechaInicio, fechaFin, soloAnulados, incluirAnulados } = query || {};
+    const { idUsuario, fechaInicio, fechaFin, soloAnulados, incluirAnulados } =
+      query || {};
     const paginacion = resolverPaginacion(query);
 
     const where: any = {};
@@ -356,17 +382,31 @@ export class CajasService {
       ...construirRespuestaPaginada(datos, total, paginacion),
       metricas: {
         totalCierres: total,
-        totalContado: (agregados._sum.montoFinal ?? new Prisma.Decimal(0)).toString(),
-        totalEsperado: (agregados._sum.montoEsperado ?? new Prisma.Decimal(0)).toString(),
-        diferenciaAcumulada: (agregados._sum.diferencia ?? new Prisma.Decimal(0)).toString(),
+        totalContado: (
+          agregados._sum.montoFinal ?? new Prisma.Decimal(0)
+        ).toString(),
+        totalEsperado: (
+          agregados._sum.montoEsperado ?? new Prisma.Decimal(0)
+        ).toString(),
+        diferenciaAcumulada: (
+          agregados._sum.diferencia ?? new Prisma.Decimal(0)
+        ).toString(),
       },
     };
   }
 
   async arqueo(id: number) {
     const apertura = await this.findOne(id);
-    const { ventasEfectivo, totalDonaciones, montoEsperado, discrepanciaOffline } =
-      await this.calcularArqueo(this.prisma, apertura.id, apertura.montoInicial);
+    const {
+      ventasEfectivo,
+      totalDonaciones,
+      montoEsperado,
+      discrepanciaOffline,
+    } = await this.calcularArqueo(
+      this.prisma,
+      apertura.id,
+      apertura.montoInicial,
+    );
 
     return {
       idApertura: apertura.id,
@@ -393,23 +433,35 @@ export class CajasService {
       });
 
       if (!apertura) {
-        throw new NotFoundException(`No se encontró la caja solicitada con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró la caja solicitada con el ID ${id}.`,
+        );
       }
 
       if (apertura.anulado || apertura.estado.nombre !== ESTADO_ABIERTA) {
-        throw new BadRequestException('La caja ya se encuentra cerrada o anulada.');
+        throw new BadRequestException(
+          'La caja ya se encuentra cerrada o anulada.',
+        );
       }
 
-      await this.exigirSinLotesOfflinePendientes(tx, apertura.id, dto, supervisa, ejecutor);
-
-      const { ventasEfectivo, montoEsperado, discrepanciaOffline } = await this.calcularArqueo(
+      await this.exigirSinLotesOfflinePendientes(
         tx,
         apertura.id,
-        apertura.montoInicial,
+        dto,
+        supervisa,
+        ejecutor,
       );
-      const diferencia = new Prisma.Decimal(dto.montoContado).minus(montoEsperado);
 
-      const idEstadoCerrada = await this.obtenerEstadoIdPorNombre(tx, ESTADO_CERRADA);
+      const { ventasEfectivo, montoEsperado, discrepanciaOffline } =
+        await this.calcularArqueo(tx, apertura.id, apertura.montoInicial);
+      const diferencia = new Prisma.Decimal(dto.montoContado).minus(
+        montoEsperado,
+      );
+
+      const idEstadoCerrada = await this.obtenerEstadoIdPorNombre(
+        tx,
+        ESTADO_CERRADA,
+      );
       const ahora = getFechaUTC6();
 
       const cierre = await tx.cierreCaja.create({
@@ -438,7 +490,9 @@ export class CajasService {
       });
 
       return {
-        apertura: supervisa ? aperturaActualizada : this.ocultarArqueoDeCaja(aperturaActualizada),
+        apertura: supervisa
+          ? aperturaActualizada
+          : this.ocultarArqueoDeCaja(aperturaActualizada),
         cierre: supervisa ? cierre : this.ocultarArqueoDeCierre(cierre),
         // Misma regla que `montoEsperado`: quien cobró de menos no debería ver si
         // el sistema lo detectó.
@@ -492,13 +546,36 @@ export class CajasService {
     });
 
     if (!dto.forzarLoteOffline) {
+      // Un UUID no le sirve a quien está parado frente a tres tablets iguales; la
+      // serie sí, porque es lo que se le puede rotular al equipo. Puede no existir:
+      // los lotes son anteriores al registro de dispositivos, así que un lote viejo
+      // no tiene taquilla registrada y solo quedará el identificador.
+      const taquilla = await tx.dispositivoTaquilla.findUnique({
+        where: { idDispositivo: lote.idDispositivo },
+        select: { serie: true, nombre: true },
+      });
+
+      const comoLlamarla =
+        taquilla?.nombre ?? taquilla?.serie ?? lote.idDispositivo;
+
       throw new ConflictException({
         codigo: 'LOTE_OFFLINE_PENDIENTE',
         idLote: lote.id,
+        serie: taquilla?.serie ?? null,
+        nombre: taquilla?.nombre ?? null,
+        // Sin saber QUÉ equipo es, «sincronice el dispositivo» no se puede cumplir:
+        // quien cierra la caja suele estar en otra máquina.
+        idDispositivo: lote.idDispositivo,
         foliosReservados,
+        // El mensaje nombra los dos casos a propósito. Antes solo decía «suba la cola
+        // del dispositivo», y con un equipo perdido eso manda al operador a hacer algo
+        // imposible: la caja queda trabada y la instrucción no se puede seguir.
         message:
-          `La caja tiene el lote offline ${lote.id} activo, con ${foliosReservados} folios sin ` +
-          'liquidar. Suba la cola de ventas del dispositivo y concilie el lote antes de cerrar.',
+          `La caja tiene el lote offline ${lote.id} activo de la taquilla ${comoLlamarla}, ` +
+          `con ${foliosReservados} folios sin liquidar. Si ese equipo está disponible, suba su ` +
+          'cola de recaudación y concilie el lote antes de cerrar. Si se perdió o no enciende, ' +
+          'la caja no puede cerrarse hasta que un supervisor invalide el lote, y eso descarta ' +
+          'como no vendidos los folios que queden sin subir.',
       });
     }
 
@@ -527,66 +604,79 @@ export class CajasService {
       modulo: 'Cajas',
       descripcion:
         `Se forzó el cierre de la caja ${idApertura} invalidando el lote offline ${lote.id}: ` +
-        `${foliosReservados} folios quedaron inutilizables. Las ventas que el dispositivo no ` +
+        `${foliosReservados} folios quedaron inutilizables. La recaudación que el dispositivo no ` +
         'haya subido se pierden.',
     });
   }
 
   async anularCierre(id: number, ejecutor?: EjecutorInfo) {
-    return this.prisma.$transaction(async (tx) => {
-      const apertura = await tx.aperturaCaja.findUnique({
-        where: { id },
-        include: {
-          estado: true,
-          cierresCaja: { where: { anulado: false }, orderBy: { fechaCierre: 'desc' } },
-        },
-      });
+    return this.prisma.$transaction(
+      async (tx) => {
+        const apertura = await tx.aperturaCaja.findUnique({
+          where: { id },
+          include: {
+            estado: true,
+            cierresCaja: {
+              where: { anulado: false },
+              orderBy: { fechaCierre: 'desc' },
+            },
+          },
+        });
 
-      if (!apertura) {
-        throw new NotFoundException(`No se encontró la caja solicitada con el ID ${id}.`);
-      }
+        if (!apertura) {
+          throw new NotFoundException(
+            `No se encontró la caja solicitada con el ID ${id}.`,
+          );
+        }
 
-      const cierreVigente = apertura.cierresCaja[0];
+        const cierreVigente = apertura.cierresCaja[0];
 
-      if (apertura.estado.nombre !== ESTADO_CERRADA || !cierreVigente) {
-        throw new BadRequestException('La caja no tiene un cierre vigente para anular.');
-      }
+        if (apertura.estado.nombre !== ESTADO_CERRADA || !cierreVigente) {
+          throw new BadRequestException(
+            'La caja no tiene un cierre vigente para anular.',
+          );
+        }
 
-      // Reabrir esta caja mientras otra está abierta dejaría dos cajas abiertas
-      // a la vez, rompiendo el invariante del módulo.
-      const otraAbierta = await this.buscarCajaAbierta(tx, apertura.id);
-      if (otraAbierta) {
-        throw new ConflictException(
-          `No se puede reabrir la caja (ID ${apertura.id}) porque ya existe otra caja abierta (ID ${otraAbierta.id}).`,
+        // Reabrir esta caja mientras otra está abierta dejaría dos cajas abiertas
+        // a la vez, rompiendo el invariante del módulo.
+        const otraAbierta = await this.buscarCajaAbierta(tx, apertura.id);
+        if (otraAbierta) {
+          throw new ConflictException(
+            `No se puede reabrir la caja (ID ${apertura.id}) porque ya existe otra caja abierta (ID ${otraAbierta.id}).`,
+          );
+        }
+
+        await tx.cierreCaja.update({
+          where: { id: cierreVigente.id },
+          data: { anulado: true },
+        });
+
+        const idEstadoAbierta = await this.obtenerEstadoIdPorNombre(
+          tx,
+          ESTADO_ABIERTA,
         );
-      }
+        const ahora = getFechaUTC6();
 
-      await tx.cierreCaja.update({
-        where: { id: cierreVigente.id },
-        data: { anulado: true },
-      });
+        const aperturaActualizada = await tx.aperturaCaja.update({
+          where: { id: apertura.id },
+          data: { idEstado: idEstadoAbierta, fechaActualizacion: ahora },
+          include: INCLUDE_DETALLE,
+        });
 
-      const idEstadoAbierta = await this.obtenerEstadoIdPorNombre(tx, ESTADO_ABIERTA);
-      const ahora = getFechaUTC6();
+        await BitacoraService.registrarEnTransaccion(tx, {
+          idUsuario: ejecutor?.id,
+          usuarioNombre: await this.obtenerNombreEjecutor(tx, ejecutor),
+          accion: 'ANULAR_CIERRE_CAJA',
+          modulo: 'Cajas',
+          descripcion: `Se anuló el cierre (ID ${cierreVigente.id}) de la caja (ID ${apertura.id}) y se reabrió la caja.`,
+        });
 
-      const aperturaActualizada = await tx.aperturaCaja.update({
-        where: { id: apertura.id },
-        data: { idEstado: idEstadoAbierta, fechaActualizacion: ahora },
-        include: INCLUDE_DETALLE,
-      });
-
-      await BitacoraService.registrarEnTransaccion(tx, {
-        idUsuario: ejecutor?.id,
-        usuarioNombre: await this.obtenerNombreEjecutor(tx, ejecutor),
-        accion: 'ANULAR_CIERRE_CAJA',
-        modulo: 'Cajas',
-        descripcion: `Se anuló el cierre (ID ${cierreVigente.id}) de la caja (ID ${apertura.id}) y se reabrió la caja.`,
-      });
-
-      return aperturaActualizada;
-      // Serializable: la reapertura depende de que no aparezca otra caja abierta
-      // entre la verificación y el update.
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        return aperturaActualizada;
+        // Serializable: la reapertura depende de que no aparezca otra caja abierta
+        // entre la verificación y el update.
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async anularApertura(id: number, ejecutor?: EjecutorInfo) {
@@ -597,11 +687,15 @@ export class CajasService {
       });
 
       if (!apertura) {
-        throw new NotFoundException(`No se encontró la caja solicitada con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró la caja solicitada con el ID ${id}.`,
+        );
       }
 
       if (apertura.anulado) {
-        throw new BadRequestException(`La apertura de caja (ID ${id}) ya se encuentra anulada.`);
+        throw new BadRequestException(
+          `La apertura de caja (ID ${id}) ya se encuentra anulada.`,
+        );
       }
 
       if (apertura.estado.nombre !== ESTADO_ABIERTA) {

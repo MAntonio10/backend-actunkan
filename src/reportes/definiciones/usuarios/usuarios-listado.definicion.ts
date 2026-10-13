@@ -39,9 +39,11 @@ export const usuariosListado: DefinicionReporte = {
   clave: 'usuarios-listado',
   titulo: 'Usuarios del sistema',
   descripcion:
-    'Padrón de usuarios con su puesto, correo, teléfono, si están activos o dados de ' +
-    'baja, cuándo se dieron de alta y cuándo accedieron por última vez. Responde a ' +
-    'preguntas sobre personal, cuentas, empleados o quién tiene acceso al sistema.',
+    'Padrón de usuarios: puesto, correo, teléfono, si están activos y cuándo ' +
+    'accedieron por última vez.',
+  pistasIa:
+    'Incluye la fecha de alta y si están dados de baja. Responde a preguntas sobre ' +
+    'personal, cuentas, empleados o quién tiene acceso al sistema.',
   categoria: 'Usuarios',
   moduloOrigen: 'Usuarios',
   orientacionSugerida: 'horizontal',
@@ -109,7 +111,7 @@ export const usuariosListado: DefinicionReporte = {
         'El último acceso se toma de la sesión activa más reciente. Un usuario sin sesión ' +
           'registrada aparece sin fecha: nunca inició sesión o todas sus sesiones se cerraron.',
         'Un usuario dado de baja conserva su historial y puede seguir apareciendo en los ' +
-          'reportes de ventas de fechas anteriores.',
+          'reportes de recaudación de fechas anteriores.',
       ],
     };
   },

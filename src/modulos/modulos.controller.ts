@@ -39,7 +39,10 @@ export class ModulosController {
     @Query('incluirAnulados') incluirAnulados?: string,
     @Query('soloAsignables') soloAsignables?: string,
   ) {
-    return this.modulosService.findAll(incluirAnulados === 'true', soloAsignables === 'true');
+    return this.modulosService.findAll(
+      incluirAnulados === 'true',
+      soloAsignables === 'true',
+    );
   }
 
   /**
@@ -51,7 +54,9 @@ export class ModulosController {
    */
   @Get('mis-modulos')
   misModulos(@Request() req: any) {
-    return this.modulosService.findModulosDelUsuario(req.user.sub ?? req.user.id);
+    return this.modulosService.findModulosDelUsuario(
+      req.user.sub ?? req.user.id,
+    );
   }
 
   @Get(':id')
@@ -67,7 +72,11 @@ export class ModulosController {
     @Body() updateModuloDto: UpdateModuloDto,
     @Request() req: any,
   ) {
-    return this.modulosService.update(id, updateModuloDto, this.getEjecutor(req));
+    return this.modulosService.update(
+      id,
+      updateModuloDto,
+      this.getEjecutor(req),
+    );
   }
 
   @Patch(':id/activar')

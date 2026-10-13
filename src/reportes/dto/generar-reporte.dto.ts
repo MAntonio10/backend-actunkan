@@ -43,9 +43,9 @@ export class GenerarReporteDto {
   hasta?: string;
 
   @IsOptional()
-  @IsString({ message: 'El vendedor debe ser un nombre o un identificador.' })
+  @IsString({ message: 'El colaborador debe ser un nombre o un identificador.' })
   @MaxLength(255, {
-    message: 'El vendedor no puede exceder los 255 caracteres.',
+    message: 'El colaborador no puede exceder los 255 caracteres.',
   })
   vendedor?: string;
 
@@ -182,7 +182,9 @@ export class GenerarReporteDto {
 
   @IsOptional()
   @IsString({ message: 'La métrica debe ser texto.' })
-  @IsIn(METRICAS, { message: `La métrica debe ser una de: ${METRICAS.join(', ')}.` })
+  @IsIn(METRICAS, {
+    message: `La métrica debe ser una de: ${METRICAS.join(', ')}.`,
+  })
   metrica?: string;
 
   @IsOptional()

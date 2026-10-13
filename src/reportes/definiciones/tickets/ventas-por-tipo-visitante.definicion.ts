@@ -44,11 +44,12 @@ const COLUMNAS = [
  */
 export const ventasPorTipoDeVisitante: DefinicionReporte = {
   clave: 'ventas-por-tipo-visitante',
-  titulo: 'Ventas por tipo de visitante',
+  titulo: 'Recaudación por tipo de visitante',
   descripcion:
-    'Cuántas personas de cada categoría ingresaron y cuánto aportó cada una: adultos, ' +
-    'niños, niños menores y centros educativos. Responde a preguntas sobre categorías, ' +
-    'tipos de entrada, adultos contra niños, o composición del público.',
+    'Cuántas personas de cada categoría ingresaron y cuánto aportó cada una.',
+  pistasIa:
+    'Categorías: adultos, niños, niños menores y centros educativos. Responde a ' +
+    'preguntas sobre tipos de entrada, adultos contra niños o composición del público.',
   categoria: 'Tickets',
   moduloOrigen: 'EmisionTickets',
   orientacionSugerida: 'vertical',
@@ -66,12 +67,12 @@ export const ventasPorTipoDeVisitante: DefinicionReporte = {
     );
 
     return {
-      titulo: 'Ventas por tipo de visitante',
+      titulo: 'Recaudación por tipo de visitante',
       periodo: periodoDe(filtros),
       filtrosAplicados: filtros.aplicados,
       kpis: [
         kpiEntero('Personas', metricas.personas),
-        kpiEntero('Categorías con venta', filas.length),
+        kpiEntero('Categorías con recaudación', filas.length),
         kpiMoneda('Recaudado (total)', metricas.recaudado),
       ],
       secciones: [

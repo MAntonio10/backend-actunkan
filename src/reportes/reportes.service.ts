@@ -115,10 +115,17 @@ export class ReportesService {
           // nombres reales de la query string. Casi siempre coinciden, pero el rango de
           // fechas es un solo control y dos parámetros: sin esta traducción, un
           // formulario genérico mandaría `periodo=...` y se llevaría un 400.
-          filtros: definicion.filtros.map((filtro) => ({
+          // Los campos del reporte se nombran uno por uno arriba, así que `pistasIa`
+          // ya queda fuera; acá hay que quitarlo a mano porque el filtro se copia
+          // entero. Es vocabulario escrito para el modelo, y todo lo que el catálogo
+          // expone lo pinta el frontend: se descarta de este lado para no depender
+          // de que la otra punta se acuerde de ignorarlo.
+          filtros: definicion.filtros.map(({ pistasIa: _pistas, ...filtro }) => ({
             ...filtro,
             parametros:
-              filtro.tipo === 'rangoFechas' ? ['desde', 'hasta'] : [filtro.clave],
+              filtro.tipo === 'rangoFechas'
+                ? ['desde', 'hasta']
+                : [filtro.clave],
           })),
           formatos: ['json', 'pdf', 'excel'],
         };

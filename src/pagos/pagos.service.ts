@@ -1,8 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { BitacoraService } from '../bitacora/bitacora.service';
-import { getFechaUTC6 } from '../common/utils/date.util';
-import { ESTADO_PASARELA_PAGADO, RecurrenteService } from './recurrente.service';
 
 export const ESTADO_PAGO_PAGADO = 'PAGADO';
 export const ESTADO_PAGO_PENDIENTE = 'PENDIENTE';
@@ -12,102 +9,55 @@ export const ESTADO_PAGO_CANCELADO = 'CANCELADO';
 export class PagosService {
   private readonly logger = new Logger(PagosService.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly recurrente: RecurrenteService,
-  ) {}
+  // Ya no se inyecta `RecurrenteService`: este servicio dejó de preguntarle a la
+  // pasarela. El estado lo escribe el webhook y acá solo se lee.
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Sincroniza el estado del pago consultando a la pasarela.
+   * Estado de un cobro, para la pantalla que ve quien acaba de pagar.
    *
-   * Lo llama la página pública de éxito cuando la pasarela redirige de vuelta.
-   * El estado nunca se toma de lo que diga el cliente: se pregunta a Recurrente
-   * con la llave secreta, y solo `paid` marca el pago como cobrado.
+   * Es SOLO LECTURA: no consulta a la pasarela y no escribe nada. Quien mueve el
+   * estado es el webhook, y esto se limita a mirar lo que ya quedó escrito. Antes
+   * acá vivía `confirmarCheckout`, que preguntaba a la pasarela y confirmaba el
+   * cobro; eso hacía que un pago real se quedara sin confirmar para siempre si el
+   * visitante no volvía a la página de éxito.
+   *
+   * La página sondea esto cada pocos segundos tras el pago y, en cuanto el webhook
+   * entró, muestra el resultado. Normalmente son segundos.
    */
-  async confirmarCheckout(idCheckout: string) {
+  async estadoDeCheckout(idCheckout: string) {
     const pago = await this.prisma.ticketPago.findFirst({
       where: { idPagoPasarela: idCheckout },
+      orderBy: { id: 'desc' },
       include: {
-        tickets: {
-          select: {
-            id: true,
-            numeroTicket: true,
-            nombre: true,
-            cantidadPersonas: true,
-            anulado: true,
-            atraccion: { select: { nombre: true } },
-          },
-        },
+        tickets: { select: { numeroTicket: true, anulado: true } },
       },
     });
 
     if (!pago) {
-      throw new NotFoundException('No se encontró un pago asociado a ese checkout.');
+      // El id del checkout es opaco y lo tiene quien pagó, así que el 404 no filtra
+      // nada. Devolver 200 con nulos dejaría la página sondeando para siempre.
+      throw new NotFoundException(
+        'No se encontró un pago asociado a ese checkout.',
+      );
     }
 
-    // Ya estaba resuelto: se responde sin volver a consultar a la pasarela.
-    if (pago.estadoPago === ESTADO_PAGO_PAGADO) {
-      return this.respuestaPublica(pago, true);
-    }
-
-    const checkout = await this.recurrente.consultarCheckout(idCheckout);
-    const pagado = checkout.status === ESTADO_PASARELA_PAGADO;
-
-    if (!pagado) {
-      this.logger.log(`Checkout ${idCheckout} sigue en estado '${checkout.status}'.`);
-      return this.respuestaPublica(pago, false, checkout.status);
-    }
-
-    const ahora = getFechaUTC6();
-    const actualizado = await this.prisma.ticketPago.update({
-      where: { id: pago.id },
-      data: {
-        estadoPago: ESTADO_PAGO_PAGADO,
-        fechaPago: ahora,
-        fechaActualizacion: ahora,
-      },
-      include: { tickets: { select: { numeroTicket: true } } },
-    });
-
-    await BitacoraService.registrarEnTransaccion(this.prisma, {
-      accion: 'PAGO_CONFIRMADO',
-      modulo: 'EmisionTickets',
-      descripcion:
-        `Pago con tarjeta confirmado para el ticket ${actualizado.tickets.numeroTicket} ` +
-        `(checkout ${idCheckout}, ${pago.monto.toString()} GTQ).`,
-    });
-
-    this.logger.log(`Pago confirmado para el ticket ${actualizado.tickets.numeroTicket}.`);
-
-    return this.respuestaPublica({ ...pago, estadoPago: ESTADO_PAGO_PAGADO }, true);
-  }
-
-  /**
-   * Lo mínimo que necesita la página de éxito. El endpoint es público, así que no
-   * se expone el QR ni la firma: con eso cualquiera podría fabricarse un pase.
-   */
-  private respuestaPublica(pago: any, pagado: boolean, estadoPasarela?: string) {
-    const estadoPago = pagado
-      ? ESTADO_PAGO_PAGADO
-      : pago.estadoPago === ESTADO_PAGO_PENDIENTE
-      ? 'Pago pendiente'
-      : pago.estadoPago;
+    const anulado = pago.anulado || pago.tickets.anulado;
 
     return {
-      pagado,
-      estadoPago,
-      ...(estadoPasarela ? { estadoPasarela } : {}),
+      // Se deriva de la fila en vez de dejar que lo decida quien llama: la base es
+      // la única fuente de verdad y la página no tiene que comparar textos.
+      pagado: pago.estadoPago === ESTADO_PAGO_PAGADO && !anulado,
+      estadoPago:
+        pago.estadoPago === ESTADO_PAGO_PENDIENTE
+          ? 'Pago pendiente'
+          : pago.estadoPago,
       monto: pago.monto.toString(),
-      ticket: {
-        numeroTicket: pago.tickets.numeroTicket,
-        nombre: pago.tickets.nombre,
-        cantidadPersonas: pago.tickets.cantidadPersonas,
-        atraccion: pago.tickets.atraccion?.nombre ?? null,
-        anulado: pago.tickets.anulado,
-      },
+      folio: pago.tickets.numeroTicket,
+      fechaPago: pago.fechaPago,
+      anulado,
     };
   }
-
   /** Consulta sin sincronizar, para pantallas internas. */
   async estadoPorTicket(idTicket: number) {
     const pagos = await this.prisma.ticketPago.findMany({
@@ -117,7 +67,10 @@ export class PagosService {
 
     return pagos.map((p) => ({
       id: p.id,
-      estadoPago: p.estadoPago === ESTADO_PAGO_PENDIENTE ? 'Pago pendiente' : p.estadoPago,
+      estadoPago:
+        p.estadoPago === ESTADO_PAGO_PENDIENTE
+          ? 'Pago pendiente'
+          : p.estadoPago,
       monto: p.monto.toString(),
       opcionPago: p.opcionPago.nombre,
       checkoutUrl: p.checkoutUrl,

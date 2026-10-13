@@ -140,7 +140,9 @@ export class GuiasService {
       }
 
       if (guia.anulado) {
-        throw new BadRequestException(`El guía '${guia.nombre}' ya se encuentra anulado.`);
+        throw new BadRequestException(
+          `El guía '${guia.nombre}' ya se encuentra anulado.`,
+        );
       }
 
       const anulado = await tx.guia.update({
@@ -169,7 +171,9 @@ export class GuiasService {
       }
 
       if (!guia.anulado) {
-        throw new BadRequestException(`El guía '${guia.nombre}' ya se encuentra activo.`);
+        throw new BadRequestException(
+          `El guía '${guia.nombre}' ya se encuentra activo.`,
+        );
       }
 
       await GuiasService.exigirNombreLibre(tx, guia.nombre, id);

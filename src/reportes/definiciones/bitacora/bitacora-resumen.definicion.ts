@@ -52,9 +52,11 @@ export const bitacoraResumen: DefinicionReporte = {
   clave: 'bitacora-resumen',
   titulo: 'Resumen de bitácora',
   descripcion:
-    'Cuántas acciones se registraron en el período, agrupadas por módulo, por usuario y ' +
-    'por tipo de acción. Responde a preguntas sobre actividad del sistema, quién trabajó ' +
-    'más, o qué módulos se usan.',
+    'Cuántas acciones se registraron, agrupadas por módulo, por usuario y por tipo ' +
+    'de acción.',
+  pistasIa:
+    'Responde a preguntas sobre actividad del sistema, quién trabajó más o qué ' +
+    'módulos se usan.',
   categoria: 'Bitácora',
   moduloOrigen: 'Bitacora',
   orientacionSugerida: 'vertical',

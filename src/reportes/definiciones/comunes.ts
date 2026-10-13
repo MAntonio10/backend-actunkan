@@ -22,16 +22,24 @@ export const FILTRO_PERIODO: EsquemaFiltro = {
   clave: 'periodo',
   etiqueta: 'Período',
   tipo: 'rangoFechas',
-  descripcion:
-    'Rango de fechas del reporte, ambas inclusive. Si el usuario no lo dice, usar el mes en curso.',
+  descripcion: 'Rango de fechas del reporte, ambas inclusive.',
+  // Qué período asumir es una instrucción para el modelo. Entraba sin cortarse en
+  // la ayuda del filtro, pero ahí le hablaba a la persona equivocada: quien lee
+  // tiene el selector de fechas al lado y no necesita que se le diga qué asumir.
+  pistasIa: 'Si el usuario no lo dice, usar el mes en curso.',
   requerido: true,
 };
 
 export const FILTRO_VENDEDOR: EsquemaFiltro = {
   clave: 'vendedor',
-  etiqueta: 'Vendedor',
+  etiqueta: 'Colaborador',
   tipo: 'usuario',
-  descripcion: 'Nombre del cajero o usuario que emitió la venta.',
+  descripcion: 'Nombre del colaborador que emitió el ticket.',
+  // El sinónimo vive acá y no en la descripción porque el frontend pinta la
+  // descripción junto al control: «antes vendedor» le sirve al modelo y a la
+  // persona le estorba. Quien pida «por vendedor» por costumbre tiene que seguir
+  // obteniendo lo mismo.
+  pistasIa: 'Se le decía «vendedor»; las dos palabras son este filtro.',
 };
 
 export const FILTRO_ATRACCION: EsquemaFiltro = {
@@ -223,8 +231,8 @@ export function fechaHora(fecha: Date | null | undefined): string | null {
 
 /** Nota que llevan todos los reportes de venta sobre a qué día se imputa una venta. */
 export const NOTA_FECHA_VENTA =
-  'Las ventas se imputan por su fecha de registro en el servidor, igual que el historial ' +
-  'de tickets y el arqueo de caja. Una venta offline subida al día siguiente cuenta en el ' +
+  'La recaudación se imputa por su fecha de registro en el servidor, igual que el historial ' +
+  'de tickets y el arqueo de caja. Una recaudación offline subida al día siguiente cuenta en el ' +
   'día en que se subió.';
 
 export const NOTA_ANULADOS =

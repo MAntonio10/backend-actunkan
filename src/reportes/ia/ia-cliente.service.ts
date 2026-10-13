@@ -72,7 +72,9 @@ function segundosDeDuracion(valor: string | null): number | null {
   const directo = Number(valor);
   if (Number.isFinite(directo)) return directo;
 
-  const coincidencia = valor.match(/(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?/);
+  const coincidencia = valor.match(
+    /(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?/,
+  );
   if (!coincidencia) return null;
   const minutos = Number(coincidencia[1] ?? 0);
   const segundos = Number(coincidencia[2] ?? 0);
@@ -286,7 +288,9 @@ export class IaClienteService {
       );
 
       if (ESTADOS_TRANSITORIOS.has(respuesta.status)) {
-        throw new FalloTransitorioIA(`el proveedor respondió ${respuesta.status}`);
+        throw new FalloTransitorioIA(
+          `el proveedor respondió ${respuesta.status}`,
+        );
       }
 
       // 400 `json_validate_failed`: el modelo no produjo el JSON del esquema.
@@ -329,10 +333,10 @@ export class IaClienteService {
         throw new ServiceUnavailableException(
           esCuota
             ? 'Se agotó la cuota del servicio de inteligencia artificial. Vuelva a ' +
-              'intentarlo más tarde o use un reporte del catálogo.'
+                'intentarlo más tarde o use un reporte del catálogo.'
             : 'El servicio de inteligencia artificial está recibiendo demasiadas ' +
-              `peticiones${espera ? ` (pide esperar ${Math.round(espera)} s)` : ''}. ` +
-              'Espere un momento o use un reporte del catálogo.',
+                `peticiones${espera ? ` (pide esperar ${Math.round(espera)} s)` : ''}. ` +
+                'Espere un momento o use un reporte del catálogo.',
         );
       }
 

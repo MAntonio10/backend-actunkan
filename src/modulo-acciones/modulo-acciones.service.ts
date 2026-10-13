@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { CreateModuloAccionDto } from './dto/create-modulo-accion.dto';
@@ -88,7 +92,9 @@ export class ModuloAccionesService {
    */
   async findAll(incluirNoAsignables = false) {
     return this.prisma.moduloAccion.findMany({
-      where: incluirNoAsignables ? {} : { modulo: { esAsignable: true, anulado: false } },
+      where: incluirNoAsignables
+        ? {}
+        : { modulo: { esAsignable: true, anulado: false } },
       include: {
         modulo: true,
         accion: true,
@@ -103,7 +109,9 @@ export class ModuloAccionesService {
     });
 
     if (!modulo) {
-      throw new NotFoundException(`No existe ningún módulo con el ID ${idModulo}.`);
+      throw new NotFoundException(
+        `No existe ningún módulo con el ID ${idModulo}.`,
+      );
     }
 
     return this.prisma.moduloAccion.findMany({

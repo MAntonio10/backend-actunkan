@@ -9,7 +9,9 @@ describe('GuiasService', () => {
   beforeEach(async () => {
     prisma = {
       guia: {
-        findMany: jest.fn().mockResolvedValue([{ id: 7, nombre: 'Juan Tecún' }]),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ id: 7, nombre: 'Juan Tecún' }]),
         count: jest.fn().mockResolvedValue(58),
       },
     };
@@ -42,13 +44,18 @@ describe('GuiasService', () => {
     it('el total se cuenta con el mismo filtro que las filas devueltas', async () => {
       await service.findAll({ buscar: 'Tecún', incluirAnulados: 'true' });
 
-      expect(prisma.guia.count.mock.calls[0][0].where).toEqual(argsFindMany().where);
+      expect(prisma.guia.count.mock.calls[0][0].where).toEqual(
+        argsFindMany().where,
+      );
     });
 
     it('ordena por nombre con desempate por id', async () => {
       await service.findAll({});
 
-      expect(argsFindMany().orderBy).toEqual([{ nombre: 'asc' }, { id: 'asc' }]);
+      expect(argsFindMany().orderBy).toEqual([
+        { nombre: 'asc' },
+        { id: 'asc' },
+      ]);
     });
 
     it('busca por nombre y esconde los anulados por defecto', async () => {

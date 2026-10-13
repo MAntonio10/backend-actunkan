@@ -35,13 +35,19 @@ export class SectoresService {
    * existente es lo correcto, y dos filas con el mismo nombre harían imposible
    * distinguirlas en el selector del formulario.
    */
-  private async exigirNombreLibre(tx: any, nombre: string, idExcluido?: number) {
+  private async exigirNombreLibre(
+    tx: any,
+    nombre: string,
+    idExcluido?: number,
+  ) {
     const existente = await tx.sectorParque.findFirst({ where: { nombre } });
 
     if (existente && existente.id !== idExcluido) {
       throw new ConflictException(
         `Ya existe un sector registrado con el nombre '${nombre}'${
-          existente.anulado ? ', actualmente anulado. Reactívelo en lugar de crear otro.' : '.'
+          existente.anulado
+            ? ', actualmente anulado. Reactívelo en lugar de crear otro.'
+            : '.'
         }`,
       );
     }
@@ -91,11 +97,17 @@ export class SectoresService {
     return sector;
   }
 
-  async actualizar(id: number, dto: ActualizarSectorDto, ejecutor?: EjecutorInfo) {
+  async actualizar(
+    id: number,
+    dto: ActualizarSectorDto,
+    ejecutor?: EjecutorInfo,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const sector = await tx.sectorParque.findUnique({ where: { id } });
       if (!sector) {
-        throw new NotFoundException(`No se encontró el sector con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró el sector con el ID ${id}.`,
+        );
       }
 
       const nombre = dto.nombre?.trim();
@@ -129,11 +141,15 @@ export class SectoresService {
     return this.prisma.$transaction(async (tx) => {
       const sector = await tx.sectorParque.findUnique({ where: { id } });
       if (!sector) {
-        throw new NotFoundException(`No se encontró el sector con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró el sector con el ID ${id}.`,
+        );
       }
 
       if (sector.anulado) {
-        throw new BadRequestException(`El sector '${sector.nombre}' ya se encuentra anulado.`);
+        throw new BadRequestException(
+          `El sector '${sector.nombre}' ya se encuentra anulado.`,
+        );
       }
 
       const anulado = await tx.sectorParque.update({
@@ -157,11 +173,15 @@ export class SectoresService {
     return this.prisma.$transaction(async (tx) => {
       const sector = await tx.sectorParque.findUnique({ where: { id } });
       if (!sector) {
-        throw new NotFoundException(`No se encontró el sector con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró el sector con el ID ${id}.`,
+        );
       }
 
       if (!sector.anulado) {
-        throw new BadRequestException(`El sector '${sector.nombre}' ya se encuentra activo.`);
+        throw new BadRequestException(
+          `El sector '${sector.nombre}' ya se encuentra activo.`,
+        );
       }
 
       const activado = await tx.sectorParque.update({

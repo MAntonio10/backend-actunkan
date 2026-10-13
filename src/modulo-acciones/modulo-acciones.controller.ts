@@ -15,9 +15,7 @@ import { RequirePermission } from '../common/decorators/require-permission.decor
 
 @Controller('modulo-acciones')
 export class ModuloAccionesController {
-  constructor(
-    private readonly moduloAccionesService: ModuloAccionesService,
-  ) {}
+  constructor(private readonly moduloAccionesService: ModuloAccionesService) {}
 
   private getEjecutor(req: any) {
     if (!req.user) return undefined;
@@ -29,8 +27,14 @@ export class ModuloAccionesController {
 
   @Post()
   @RequirePermission('Usuarios', 'Editar')
-  create(@Body() createModuloAccionDto: CreateModuloAccionDto, @Request() req: any) {
-    return this.moduloAccionesService.create(createModuloAccionDto, this.getEjecutor(req));
+  create(
+    @Body() createModuloAccionDto: CreateModuloAccionDto,
+    @Request() req: any,
+  ) {
+    return this.moduloAccionesService.create(
+      createModuloAccionDto,
+      this.getEjecutor(req),
+    );
   }
 
   /**

@@ -3,7 +3,9 @@ import { IsInt, IsOptional, IsString } from 'class-validator';
 import { PaginacionQueryDto } from '../../common/dto/paginacion.dto';
 import { PAGINACION_ACTIVIDADES } from '../../common/utils/paginacion.util';
 
-export class QueryActividadDto extends PaginacionQueryDto(PAGINACION_ACTIVIDADES) {
+export class QueryActividadDto extends PaginacionQueryDto(
+  PAGINACION_ACTIVIDADES,
+) {
   /** Busca en nombre y descripción. */
   @IsOptional()
   @IsString()

@@ -34,11 +34,12 @@ const COLUMNAS = [
  */
 export const ventasResumen: DefinicionReporte = {
   clave: 'ventas-resumen',
-  titulo: 'Resumen de ventas',
+  titulo: 'Resumen de recaudación',
   descripcion:
-    'Panorama de las ventas de un período: total recaudado, tickets emitidos, personas ' +
-    'que ingresaron y ticket promedio, con el desglose de una fila por día. Es el reporte ' +
-    'general de ventas cuando no se pide un desglose concreto.',
+    'Panorama del período: total recaudado, tickets, personas y ticket promedio, con ' +
+    'una fila por día.',
+  pistasIa:
+    'Es el reporte general de recaudación cuando no se pide un desglose concreto.',
   categoria: 'Tickets',
   moduloOrigen: 'EmisionTickets',
   orientacionSugerida: 'vertical',
@@ -62,7 +63,7 @@ export const ventasResumen: DefinicionReporte = {
     }));
 
     return {
-      titulo: 'Resumen de ventas',
+      titulo: 'Resumen de recaudación',
       periodo: periodoDe(filtros),
       filtrosAplicados: filtros.aplicados,
       kpis: [
@@ -78,7 +79,7 @@ export const ventasResumen: DefinicionReporte = {
       ],
       secciones: [
         {
-          titulo: 'Ventas por día',
+          titulo: 'Recaudación por día',
           columnas: COLUMNAS,
           filas,
           // El promedio no se totaliza: promediar promedios no da el promedio general.

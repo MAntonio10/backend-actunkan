@@ -1,6 +1,9 @@
 import { Body, Controller, Get, Patch, Query, Request } from '@nestjs/common';
 import { TarifasService } from './tarifas.service';
-import { ActualizarTarifaDto, ActualizarTarifaGuiaDto } from './dto/actualizar-tarifa.dto';
+import {
+  ActualizarTarifaDto,
+  ActualizarTarifaGuiaDto,
+} from './dto/actualizar-tarifa.dto';
 import { QueryHistoricoDto } from './dto/query-historico.dto';
 import { RequirePermission } from '../common/decorators/require-permission.decorator';
 import { obtenerEjecutor } from '../common/utils/ejecutor.util';
@@ -10,32 +13,35 @@ export class TarifasController {
   constructor(private readonly tarifasService: TarifasService) {}
 
   @Get()
-  @RequirePermission('EmisionTickets','Ver')
+  @RequirePermission('EmisionTickets', 'Ver')
   findVigentes() {
     return this.tarifasService.findVigentes();
   }
 
   @Get('historico')
-  @RequirePermission('EmisionTickets','Ver')
+  @RequirePermission('EmisionTickets', 'Ver')
   findHistorico(@Query() query: QueryHistoricoDto) {
     return this.tarifasService.findHistorico(query);
   }
 
   @Get('guia')
-  @RequirePermission('EmisionTickets','Ver')
+  @RequirePermission('EmisionTickets', 'Ver')
   findTarifaGuia() {
     return this.tarifasService.findTarifaGuiaVigente();
   }
 
   @Patch()
-  @RequirePermission('EmisionTickets','Editar')
+  @RequirePermission('EmisionTickets', 'Editar')
   actualizarTarifa(@Body() dto: ActualizarTarifaDto, @Request() req: any) {
     return this.tarifasService.actualizarTarifa(dto, obtenerEjecutor(req));
   }
 
   @Patch('guia')
-  @RequirePermission('EmisionTickets','Editar')
-  actualizarTarifaGuia(@Body() dto: ActualizarTarifaGuiaDto, @Request() req: any) {
+  @RequirePermission('EmisionTickets', 'Editar')
+  actualizarTarifaGuia(
+    @Body() dto: ActualizarTarifaGuiaDto,
+    @Request() req: any,
+  ) {
     return this.tarifasService.actualizarTarifaGuia(dto, obtenerEjecutor(req));
   }
 }

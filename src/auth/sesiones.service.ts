@@ -44,7 +44,11 @@ export class SesionesService {
   }
 
   /** Crea una sesión nueva y devuelve el refresh token en claro (única vez que se ve). */
-  async crear(idUsuario: number, recordarme: boolean, ctx: ContextoSesion = {}) {
+  async crear(
+    idUsuario: number,
+    recordarme: boolean,
+    ctx: ContextoSesion = {},
+  ) {
     const token = this.generarToken();
     const ahora = getFechaUTC6();
 
@@ -78,7 +82,9 @@ export class SesionesService {
     });
 
     if (!sesion) {
-      throw new UnauthorizedException('La sesión no es válida. Vuelva a iniciar sesión.');
+      throw new UnauthorizedException(
+        'La sesión no es válida. Vuelva a iniciar sesión.',
+      );
     }
 
     if (sesion.revocada) {
@@ -109,7 +115,9 @@ export class SesionesService {
     const ahora = getFechaUTC6();
 
     if (sesion.fechaExpiracion <= ahora) {
-      throw new UnauthorizedException('La sesión expiró. Vuelva a iniciar sesión.');
+      throw new UnauthorizedException(
+        'La sesión expiró. Vuelva a iniciar sesión.',
+      );
     }
 
     /**
@@ -132,7 +140,9 @@ export class SesionesService {
       });
 
       if (!pendiente) {
-        throw new UnauthorizedException('El usuario se encuentra deshabilitado.');
+        throw new UnauthorizedException(
+          'El usuario se encuentra deshabilitado.',
+        );
       }
 
       this.logger.warn(
@@ -146,7 +156,7 @@ export class SesionesService {
         modulo: 'Auth',
         descripcion:
           `El usuario ANULADO '${sesion.usuario.nombre}' renovó su sesión con alcance reducido ` +
-          `para sincronizar el lote offline ${pendiente.id}. Solo puede subir y conciliar ventas ya cobradas.`,
+          `para sincronizar el lote offline ${pendiente.id}. Solo puede subir y conciliar la recaudación ya cobrada.`,
       });
     }
 
@@ -157,7 +167,11 @@ export class SesionesService {
     const [, nueva] = await this.prisma.$transaction([
       this.prisma.sesionRefresh.update({
         where: { id: sesion.id },
-        data: { revocada: true, motivoRevocacion: 'Rotada al refrescar', fechaUltimoUso: ahora },
+        data: {
+          revocada: true,
+          motivoRevocacion: 'Rotada al refrescar',
+          fechaUltimoUso: ahora,
+        },
       }),
       this.prisma.sesionRefresh.create({
         data: {
@@ -177,7 +191,9 @@ export class SesionesService {
   /** Cierra una sesión concreta. Las demás del usuario siguen activas. */
   async revocarUna(tokenRecibido: string, motivo = 'Cierre de sesión') {
     const hash = this.hashear(tokenRecibido);
-    const sesion = await this.prisma.sesionRefresh.findUnique({ where: { tokenHash: hash } });
+    const sesion = await this.prisma.sesionRefresh.findUnique({
+      where: { tokenHash: hash },
+    });
 
     if (!sesion || sesion.revocada) {
       return { revocadas: 0 };
@@ -185,7 +201,11 @@ export class SesionesService {
 
     await this.prisma.sesionRefresh.update({
       where: { id: sesion.id },
-      data: { revocada: true, motivoRevocacion: motivo, fechaUltimoUso: getFechaUTC6() },
+      data: {
+        revocada: true,
+        motivoRevocacion: motivo,
+        fechaUltimoUso: getFechaUTC6(),
+      },
     });
 
     return { revocadas: 1, idUsuario: sesion.idUsuario };
@@ -204,7 +224,11 @@ export class SesionesService {
   /** Sesiones activas del usuario, para poder cerrar una en concreto. */
   async listarActivas(idUsuario: number) {
     return this.prisma.sesionRefresh.findMany({
-      where: { idUsuario, revocada: false, fechaExpiracion: { gt: getFechaUTC6() } },
+      where: {
+        idUsuario,
+        revocada: false,
+        fechaExpiracion: { gt: getFechaUTC6() },
+      },
       select: {
         id: true,
         fechaCreacion: true,
@@ -225,7 +249,9 @@ export class SesionesService {
     });
 
     if (resultado.count === 0) {
-      throw new UnauthorizedException('La sesión indicada no existe o ya estaba cerrada.');
+      throw new UnauthorizedException(
+        'La sesión indicada no existe o ya estaba cerrada.',
+      );
     }
 
     return { revocadas: resultado.count };

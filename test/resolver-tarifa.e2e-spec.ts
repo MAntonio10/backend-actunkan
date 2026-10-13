@@ -12,7 +12,10 @@
  * igual que antes. Al final se comprueba que el conteo de tarifas no cambió.
  */
 import { PrismaClient } from '@prisma/client';
-import { resolverTarifaEn, resolverTarifaGuiaEn } from '../src/tarifas/resolver-tarifa.util';
+import {
+  resolverTarifaEn,
+  resolverTarifaGuiaEn,
+} from '../src/tarifas/resolver-tarifa.util';
 import { getFechaUTC6 } from '../src/common/utils/date.util';
 
 const ROLLBACK = 'ROLLBACK_INTENCIONAL';
@@ -49,7 +52,9 @@ describe('resolverTarifaEn (integración con SQL Server)', () => {
     });
 
     if (!actual) {
-      throw new Error('No hay tarifas cargadas: ejecutar prisma/seed-tickets.ts antes.');
+      throw new Error(
+        'No hay tarifas cargadas: ejecutar prisma/seed-tickets.ts antes.',
+      );
     }
 
     clave = {
@@ -87,7 +92,11 @@ describe('resolverTarifaEn (integración con SQL Server)', () => {
     });
 
     it('devuelve null para una fecha anterior a que existiera el catálogo', async () => {
-      const tarifa = await resolverTarifaEn(prisma, clave, new Date('2015-01-01T12:00:00.000Z'));
+      const tarifa = await resolverTarifaEn(
+        prisma,
+        clave,
+        new Date('2015-01-01T12:00:00.000Z'),
+      );
 
       expect(tarifa).toBeNull();
     });
@@ -191,7 +200,10 @@ describe('resolverTarifaEn (integración con SQL Server)', () => {
           where: { ...clave, vigenteHasta: null, anulado: false },
         });
 
-        await tx.tarifa.update({ where: { id: vigente.id }, data: { anulado: true } });
+        await tx.tarifa.update({
+          where: { id: vigente.id },
+          data: { anulado: true },
+        });
 
         return resolverTarifaEn(tx, clave, new Date());
       });
@@ -216,7 +228,9 @@ describe('resolverTarifaEn (integración con SQL Server)', () => {
         expect(Number(dentro.precio)).toBe(12345);
       });
 
-      const despues = await prisma.tarifa.findUnique({ where: { id: antes!.id } });
+      const despues = await prisma.tarifa.findUnique({
+        where: { id: antes!.id },
+      });
       expect(Number(despues!.precio)).toBe(Number(antes!.precio));
     });
   });

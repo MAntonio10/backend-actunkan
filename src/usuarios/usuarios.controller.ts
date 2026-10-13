@@ -54,7 +54,11 @@ export class UsuariosController {
     @Body() updateUsuarioDto: UpdateUsuarioDto,
     @Request() req: any,
   ) {
-    return this.usuariosService.update(id, updateUsuarioDto, this.getEjecutor(req));
+    return this.usuariosService.update(
+      id,
+      updateUsuarioDto,
+      this.getEjecutor(req),
+    );
   }
 
   @Patch(':id/activar')
@@ -65,10 +69,7 @@ export class UsuariosController {
 
   @Delete(':id')
   @RequirePermission('Usuarios', 'Anular')
-  remove(
-    @Param('id', ParseIntPipe) id: number,
-    @Request() req: any,
-  ) {
+  remove(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
     return this.usuariosService.remove(id, this.getEjecutor(req));
   }
 
@@ -79,6 +80,10 @@ export class UsuariosController {
     @Body() assignPermisosDto: AssignPermisosDto,
     @Request() req: any,
   ) {
-    return this.usuariosService.assignPermisos(id, assignPermisosDto, this.getEjecutor(req));
+    return this.usuariosService.assignPermisos(
+      id,
+      assignPermisosDto,
+      this.getEjecutor(req),
+    );
   }
 }

@@ -36,7 +36,8 @@ export class AuthService {
    * El formato es el de `ms` (ej. '15m', '1h').
    */
   private get expiracionAcceso(): `${number}${'s' | 'm' | 'h' | 'd'}` {
-    return (process.env.JWT_ACCESS_EXPIRA || '30m') as `${number}${'s' | 'm' | 'h' | 'd'}`;
+    return (process.env.JWT_ACCESS_EXPIRA ||
+      '30m') as `${number}${'s' | 'm' | 'h' | 'd'}`;
   }
 
   /**
@@ -99,7 +100,9 @@ export class AuthService {
 
     const { contrasena, ...usuarioSinContrasena } = usuario;
 
-    this.logger.log(`Usuario autenticado exitosamente: ${usuario.correo} (ID: ${usuario.id})`);
+    this.logger.log(
+      `Usuario autenticado exitosamente: ${usuario.correo} (ID: ${usuario.id})`,
+    );
 
     // Registrar en Bitácora
     await BitacoraService.registrarEnTransaccion(this.prisma, {
@@ -126,10 +129,11 @@ export class AuthService {
    * indefinidamente: basta revocar esa sesión.
    */
   async refrescar(refreshToken: string, ctx: ContextoSesion = {}) {
-    const { refreshToken: nuevoRefresh, sesion, usuario } = await this.sesionesService.rotar(
-      refreshToken,
-      ctx,
-    );
+    const {
+      refreshToken: nuevoRefresh,
+      sesion,
+      usuario,
+    } = await this.sesionesService.rotar(refreshToken, ctx);
 
     // `rotar` ya se aseguró de que un usuario anulado solo llegue acá si tiene un
     // lote offline pendiente. El token que recibe queda acotado a liquidarlo.
@@ -146,7 +150,7 @@ export class AuthService {
         ? {
             solo_sincronizacion: true,
             aviso:
-              'Su usuario fue deshabilitado. Esta sesión solo permite subir y conciliar las ventas ' +
+              'Su usuario fue deshabilitado. Esta sesión solo permite subir y conciliar la recaudación ' +
               'offline pendientes; el resto del sistema no está disponible.',
           }
         : {}),
@@ -154,7 +158,10 @@ export class AuthService {
   }
 
   /** Cierra la sesión indicada. Las demás sesiones del usuario siguen activas. */
-  async logout(refreshToken: string, ejecutor?: { id: number; nombre?: string }) {
+  async logout(
+    refreshToken: string,
+    ejecutor?: { id: number; nombre?: string },
+  ) {
     const resultado = await this.sesionesService.revocarUna(refreshToken);
 
     if (resultado.revocadas > 0) {
@@ -163,11 +170,15 @@ export class AuthService {
         usuarioNombre: ejecutor?.nombre,
         accion: 'CIERRE_SESION',
         modulo: 'Auth',
-        descripcion: 'Cierre de sesión: se revocó el refresh token de esa sesión.',
+        descripcion:
+          'Cierre de sesión: se revocó el refresh token de esa sesión.',
       });
     }
 
-    return { mensaje: 'Sesión cerrada.', sesionesCerradas: resultado.revocadas };
+    return {
+      mensaje: 'Sesión cerrada.',
+      sesionesCerradas: resultado.revocadas,
+    };
   }
 
   /** Cierra todas las sesiones del usuario autenticado (no afecta a otros usuarios). */
@@ -185,7 +196,10 @@ export class AuthService {
       descripcion: `Se cerraron ${resultado.revocadas} sesión(es) del usuario.`,
     });
 
-    return { mensaje: 'Se cerraron todas las sesiones.', sesionesCerradas: resultado.revocadas };
+    return {
+      mensaje: 'Se cerraron todas las sesiones.',
+      sesionesCerradas: resultado.revocadas,
+    };
   }
 
   listarSesiones(idUsuario: number) {
@@ -269,7 +283,10 @@ export class AuthService {
       );
     }
 
-    if (!usuario.codigoRestablecimiento || usuario.codigoRestablecimiento !== dto.codigo) {
+    if (
+      !usuario.codigoRestablecimiento ||
+      usuario.codigoRestablecimiento !== dto.codigo
+    ) {
       throw new BadRequestException(
         `El código de verificación de 6 dígitos ingresado es incorrecto.`,
       );
@@ -305,7 +322,10 @@ export class AuthService {
       );
     }
 
-    if (!usuario.codigoRestablecimiento || usuario.codigoRestablecimiento !== dto.codigo) {
+    if (
+      !usuario.codigoRestablecimiento ||
+      usuario.codigoRestablecimiento !== dto.codigo
+    ) {
       throw new BadRequestException(
         `El código de verificación de 6 dígitos ingresado es incorrecto.`,
       );
@@ -355,7 +375,8 @@ export class AuthService {
     );
 
     return {
-      mensaje: 'La contraseña ha sido restablecida exitosamente. Ya puede iniciar sesión con su nueva contraseña.',
+      mensaje:
+        'La contraseña ha sido restablecida exitosamente. Ya puede iniciar sesión con su nueva contraseña.',
     };
   }
 }

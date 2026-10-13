@@ -33,9 +33,10 @@ export const actividadesPorSector: DefinicionReporte = {
   clave: 'actividades-por-sector',
   titulo: 'Actividades por sector',
   descripcion:
-    'Cuántas actividades se publicaron en cada sector del parque durante el período, con ' +
-    'un segundo desglose por responsable de ejecutarlas. Sirve para ver dónde se ' +
-    'concentra el trabajo y cómo está repartido.',
+    'Cuántas actividades se publicaron en cada sector, con un segundo desglose por ' +
+    'responsable.',
+  pistasIa:
+    'Sirve para ver dónde se concentra el trabajo del parque y cómo está repartido.',
   categoria: 'Actividades',
   moduloOrigen: 'ActividadesParque',
   orientacionSugerida: 'vertical',

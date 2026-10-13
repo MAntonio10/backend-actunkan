@@ -340,7 +340,7 @@ interface CrudaFlexible {
  */
 function expresionDe(clave: ClaveAgrupacion): Prisma.Sql {
   if (esClaveTiempo(clave)) return DIMENSIONES_TIEMPO[clave].expresion;
-  return COLUMNAS_DIMENSION[clave as ClaveDimension];
+  return COLUMNAS_DIMENSION[clave];
 }
 
 /** Columnas escalares de `Ticket`, como fragmentos literales. */
@@ -368,10 +368,12 @@ async function presentarClaves(
     );
   }
 
-  const dim = DIMENSIONES[clave as ClaveDimension];
+  const dim = DIMENSIONES[clave];
   const ids = valores
     .map((valor) => (valor === null ? null : Number(valor)))
-    .filter((valor): valor is number => valor !== null && Number.isFinite(valor));
+    .filter(
+      (valor): valor is number => valor !== null && Number.isFinite(valor),
+    );
   const nombres = await dim.resolverNombres(prisma, ids);
 
   return new Map(
@@ -419,9 +421,17 @@ export async function agruparVentasFlexible(
     GROUP BY ${agrupacion}`;
 
   const [nombres1, nombres2] = await Promise.all([
-    presentarClaves(prisma, clave1, filas.map((fila) => fila.g1)),
+    presentarClaves(
+      prisma,
+      clave1,
+      filas.map((fila) => fila.g1),
+    ),
     clave2
-      ? presentarClaves(prisma, clave2, filas.map((fila) => fila.g2 ?? null))
+      ? presentarClaves(
+          prisma,
+          clave2,
+          filas.map((fila) => fila.g2 ?? null),
+        )
       : Promise.resolve(new Map<string, string>()),
   ]);
 

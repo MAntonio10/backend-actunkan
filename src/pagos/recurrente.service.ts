@@ -1,7 +1,22 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 
 /** Estados que devuelve Recurrente. Solo `paid` cuenta como cobrado. */
 export const ESTADO_PASARELA_PAGADO = 'paid';
+
+/**
+ * Cuánto vive un link de pago antes de vencer.
+ *
+ * Dos horas: el cobro con tarjeta es en taquilla, y un link que sigue vivo al día
+ * siguiente es un pago que entraría a una caja que ya cuadró. Al vencer, la pasarela
+ * rechaza la URL y el `TicketPago` se queda `PENDIENTE`, que es correcto: la puerta
+ * sigue cerrada y el arqueo de efectivo no se ve afectado, porque solo suma los
+ * pagos `PAGADO` en efectivo.
+ */
+export const VIGENCIA_CHECKOUT_MS = 2 * 60 * 60 * 1000;
 
 export interface CheckoutCreado {
   id: string;
@@ -14,7 +29,10 @@ export interface CheckoutConsultado {
   status: string;
   total_in_cents?: number;
   currency?: string;
-  payment_method?: { type?: string; card?: { last4?: string; network?: string } };
+  payment_method?: {
+    type?: string;
+    card?: { last4?: string; network?: string };
+  };
 }
 
 @Injectable()
@@ -22,7 +40,9 @@ export class RecurrenteService {
   private readonly logger = new Logger(RecurrenteService.name);
 
   private get baseUrl(): string {
-    return (process.env.RECURRENTE_API_URL || 'https://app.recurrente.com/api').replace(/\/$/, '');
+    return (
+      process.env.RECURRENTE_API_URL || 'https://app.recurrente.com/api'
+    ).replace(/\/$/, '');
   }
 
   private get secreto(): string {
@@ -57,7 +77,9 @@ export class RecurrenteService {
         signal: AbortSignal.timeout(15_000),
       });
     } catch (error: any) {
-      this.logger.error(`Fallo de red con la pasarela (${url}): ${error.message}`);
+      this.logger.error(
+        `Fallo de red con la pasarela (${url}): ${error.message}`,
+      );
       throw new ServiceUnavailableException(
         'No se pudo contactar a la pasarela de pago. Intente de nuevo o cobre por otro medio.',
       );
@@ -66,7 +88,9 @@ export class RecurrenteService {
     const texto = await respuesta.text();
 
     if (!respuesta.ok) {
-      this.logger.error(`Pasarela respondió ${respuesta.status} en ${ruta}: ${texto.slice(0, 300)}`);
+      this.logger.error(
+        `Pasarela respondió ${respuesta.status} en ${ruta}: ${texto.slice(0, 300)}`,
+      );
       throw new ServiceUnavailableException(
         `La pasarela de pago rechazó la solicitud (${respuesta.status}).`,
       );
@@ -75,8 +99,12 @@ export class RecurrenteService {
     try {
       return JSON.parse(texto) as T;
     } catch {
-      this.logger.error(`Respuesta no-JSON de la pasarela en ${ruta}: ${texto.slice(0, 200)}`);
-      throw new ServiceUnavailableException('La pasarela de pago devolvió una respuesta inválida.');
+      this.logger.error(
+        `Respuesta no-JSON de la pasarela en ${ruta}: ${texto.slice(0, 200)}`,
+      );
+      throw new ServiceUnavailableException(
+        'La pasarela de pago devolvió una respuesta inválida.',
+      );
     }
   }
 
@@ -106,6 +134,16 @@ export class RecurrenteService {
       ],
       success_url: params.successUrl,
       cancel_url: params.cancelUrl,
+      // Vence a las dos horas: pensado para el pago en el acto, en taquilla, y para
+      // que un link viejo no se pague contra una caja ya cerrada.
+      //
+      // OJO CON LA FECHA: esto es un INSTANTE REAL y no la convención de la base.
+      // `getFechaUTC6()` devuelve el reloj de pared de Guatemala —epoch corrido seis
+      // horas— porque es lo que se guarda en las columnas. Usarla acá enviaría
+      // `ahora + 2h - 6h`, o sea cuatro horas en el pasado: la pasarela daría el
+      // checkout por vencido en el acto y el taquillero vería un 503 sin ninguna
+      // pista de por qué.
+      expires_at: new Date(Date.now() + VIGENCIA_CHECKOUT_MS).toISOString(),
     };
 
     const checkout = await this.pedir<CheckoutCreado>('/checkouts', {
@@ -113,7 +151,9 @@ export class RecurrenteService {
       body: JSON.stringify(cuerpo),
     });
 
-    this.logger.log(`Checkout creado ${checkout.id} por ${params.montoEnCentavos} centavos.`);
+    this.logger.log(
+      `Checkout creado ${checkout.id} por ${params.montoEnCentavos} centavos.`,
+    );
     return checkout;
   }
 
@@ -122,6 +162,8 @@ export class RecurrenteService {
    * nunca decide si pagó, aunque llegue a la página de éxito.
    */
   async consultarCheckout(idCheckout: string): Promise<CheckoutConsultado> {
-    return this.pedir<CheckoutConsultado>(`/checkouts/${encodeURIComponent(idCheckout)}`);
+    return this.pedir<CheckoutConsultado>(
+      `/checkouts/${encodeURIComponent(idCheckout)}`,
+    );
   }
 }

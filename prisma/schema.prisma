@@ -37,28 +37,30 @@ model SesionRefresh {
 }
 
 model Usuario {
-  id                   Int                 @id @default(autoincrement())
-  idPuesto             Int
-  nombre               String              @db.NVarChar(255)
-  correo               String              @unique @db.NVarChar(255)
-  contrasena           String              @db.NVarChar(255)
-  telefono             String?             @db.NVarChar(50)
-  fechaCreacion        DateTime            @db.DateTime2
-  fechaActualizacion   DateTime            @db.DateTime2
-  anulado              Boolean             @default(false)
-  codigoRestablecimiento String?           @db.NVarChar(10)
-  expiracionCodigo       DateTime?         @db.DateTime2
-  aperturasCaja        AperturaCaja[]
-  tickets              Ticket[]
-  gruposEmision        GrupoEmision[]
-  donaciones           Donacion[]
-  sesiones             SesionRefresh[]
-  lotesOffline         LoteOffline[]
-  permiso              Permisos[]
-  puesto               Puestos             @relation(fields: [idPuesto], references: [id])
-  actividadesCreadas   ActividadesParque[] @relation("ActividadAutor")
-  actividadesAsignadas ActividadesParque[] @relation("ActividadResponsable")
-  bitacora             Bitacora[]
+  id                     Int                   @id @default(autoincrement())
+  idPuesto               Int
+  nombre                 String                @db.NVarChar(255)
+  correo                 String                @unique @db.NVarChar(255)
+  contrasena             String                @db.NVarChar(255)
+  telefono               String?               @db.NVarChar(50)
+  fechaCreacion          DateTime              @db.DateTime2
+  fechaActualizacion     DateTime              @db.DateTime2
+  anulado                Boolean               @default(false)
+  codigoRestablecimiento String?               @db.NVarChar(10)
+  expiracionCodigo       DateTime?             @db.DateTime2
+  aperturasCaja          AperturaCaja[]
+  tickets                Ticket[]
+  gruposEmision          GrupoEmision[]
+  donaciones             Donacion[]
+  sesiones               SesionRefresh[]
+  lotesOffline           LoteOffline[]
+  permiso                Permisos[]
+  puesto                 Puestos               @relation(fields: [idPuesto], references: [id])
+  actividadesCreadas     ActividadesParque[]   @relation("ActividadAutor")
+  actividadesAsignadas   ActividadesParque[]   @relation("ActividadResponsable")
+  bitacora               Bitacora[]
+  dispositivos           DispositivoTaquilla[]
+  descartesOffline       DescarteOffline[]
 }
 
 model Modulo {
@@ -141,7 +143,7 @@ model GrupoEmision {
 }
 
 model Ticket {
-  id                 Int           @id @default(autoincrement())
+  id                 Int       @id @default(autoincrement())
   idGrupoEmision     Int
   idTipoRecorrido    Int
   idAperturaCaja     Int
@@ -151,20 +153,20 @@ model Ticket {
   idPais             Int?
   idGuia             Int?
   /// Folio correlativo. Siempre texto: puede llevar letras (serie configurable).
-  numeroTicket       String        @unique @db.NVarChar(30)
+  numeroTicket       String    @unique @db.NVarChar(30)
   /// 'VISITANTE' | 'GUIA'
-  tipoTicket         String        @db.NVarChar(20)
-  nombre             String        @db.NVarChar(255)
+  tipoTicket         String    @db.NVarChar(20)
+  nombre             String    @db.NVarChar(255)
   cantidadPersonas   Int
-  montoTotal         Decimal       @db.Decimal(18, 4)
-  observaciones      String?       @db.NVarChar(Max)
-  fechaCreacion      DateTime      @db.DateTime2
-  fechaActualizacion DateTime?     @db.DateTime2
-  anulado            Boolean       @default(false)
+  montoTotal         Decimal   @db.Decimal(18, 4)
+  observaciones      String?   @db.NVarChar(Max)
+  fechaCreacion      DateTime  @db.DateTime2
+  fechaActualizacion DateTime? @db.DateTime2
+  anulado            Boolean   @default(false)
   /// Firma HMAC del folio; es lo que valida el QR en taquilla.
-  qrFirma            String        @db.NVarChar(128)
+  qrFirma            String    @db.NVarChar(128)
   /// Control de acceso: se sella al primer escaneo válido.
-  fechaUso           DateTime?     @db.DateTime2
+  fechaUso           DateTime? @db.DateTime2
   idUsuarioUso       Int?
 
   // --- Venta offline (ver ESPECIFICACION_OFFLINE.md) ---
@@ -185,6 +187,10 @@ model Ticket {
   montoRecalculado    Decimal?  @db.Decimal(18, 4)
   origenOffline       Boolean   @default(false)
 
+  /// Taquilla que firmó el pase cuando lo emitió sin conexión. Null en todo lo que
+  /// firmó el servidor, que es el caso normal con red.
+  idDispositivoTaquilla Int?
+
   grupoEmision  GrupoEmision    @relation(fields: [idGrupoEmision], references: [id])
   tipoRecorrido TipoRecorrido   @relation(fields: [idTipoRecorrido], references: [id])
   aperturaCaja  AperturaCaja    @relation(fields: [idAperturaCaja], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -196,7 +202,8 @@ model Ticket {
 
   visitantePorTickets VisitantePorTicket[]
   ticketPagos         TicketPago[]
-  loteOffline         LoteOffline?     @relation(fields: [idLoteOffline], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  loteOffline         LoteOffline?         @relation(fields: [idLoteOffline], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dispositivoTaquilla DispositivoTaquilla? @relation(fields: [idDispositivoTaquilla], references: [id], onDelete: NoAction, onUpdate: NoAction)
   /// Lista en el esquema, pero **uno como máximo**: la relación es uno a uno y la
   /// garantiza el índice único filtrado sobre `FolioReservado.idTicket`. Prisma no
   /// puede expresarla como uno a uno sin un `@unique` que rompería los folios en
@@ -340,19 +347,19 @@ model Correlativo {
 ///
 /// El recibo que se entrega es **no contable**: no tiene validez fiscal.
 model Donacion {
-  id                 Int          @id @default(autoincrement())
+  id                 Int       @id @default(autoincrement())
   /// Folio correlativo del recibo, ej. `DON-2026-000001`. Siempre texto.
-  numeroRecibo       String       @unique @db.NVarChar(30)
+  numeroRecibo       String    @unique @db.NVarChar(30)
   idAperturaCaja     Int
   idUsuario          Int
   /// Opcional: se admiten donaciones anónimas.
-  nombreDonante      String?      @db.NVarChar(255)
-  monto              Decimal      @db.Decimal(18, 4)
-  observaciones      String?      @db.NVarChar(Max)
-  fechaCreacion      DateTime     @db.DateTime2
-  fechaActualizacion DateTime?    @db.DateTime2
-  anulado            Boolean      @default(false)
-  motivoAnulacion    String?      @db.NVarChar(255)
+  nombreDonante      String?   @db.NVarChar(255)
+  monto              Decimal   @db.Decimal(18, 4)
+  observaciones      String?   @db.NVarChar(Max)
+  fechaCreacion      DateTime  @db.DateTime2
+  fechaActualizacion DateTime? @db.DateTime2
+  anulado            Boolean   @default(false)
+  motivoAnulacion    String?   @db.NVarChar(255)
 
   aperturaCaja AperturaCaja @relation(fields: [idAperturaCaja], references: [id], onDelete: NoAction, onUpdate: NoAction)
   usuario      Usuario      @relation(fields: [idUsuario], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -398,22 +405,58 @@ model TicketPago {
   @@index([idOpcionPago, estadoPago])
 }
 
+/// Cada webhook de pago que entra, con lo que se decidió hacer con él.
+///
+/// Existe por dos razones distintas. La primera es la idempotencia: la pasarela
+/// reintenta una entrega hasta seis horas ante cualquier respuesta que no sea 2xx,
+/// así que el mismo aviso de cobro puede llegar varias veces y no puede aplicarse
+/// dos veces. La segunda es la evidencia: cuando una conciliación no cuadre, esto
+/// es lo único que dice qué llegó exactamente y por qué se descartó.
+model EventoPagoPasarela {
+  id               Int      @id @default(autoincrement())
+  /// Cabecera `svix-id`. Es la llave de deduplicación porque identifica el MENSAJE y
+  /// se mantiene estable entre reintentos del mismo.
+  ///
+  /// Deliberadamente NO se usa el `id` del cuerpo: ese identifica el intento de pago,
+  /// y un mismo intento emite varios eventos distintos (`intent.pending` y luego
+  /// `intent.succeeded`). Deduplicar por él descartaría el segundo, que es el que
+  /// confirma el cobro.
+  idEvento         String   @unique @db.NVarChar(255)
+  tipoEvento       String   @db.NVarChar(100)
+  /// `checkout.id` del cuerpo, que es lo que empareja con `TicketPago.idPagoPasarela`.
+  /// Anulable porque un evento mal formado o de otro tipo puede no traerlo.
+  idCheckout       String?  @db.NVarChar(255)
+  idTicketPago     Int?
+  /// Estado al que se movió el pago, cuando se movió.
+  estadoResultante String?  @db.NVarChar(20)
+  /// APLICADO | DUPLICADO_IGNORADO | IGNORADO_FUERA_DE_ORDEN | IGNORADO_SIN_EFECTO |
+  /// CHECKOUT_DESCONOCIDO | MONTO_DISCREPANTE | TIPO_NO_SOPORTADO | IGNORADO_INCONSISTENTE
+  resultado        String   @db.NVarChar(30)
+  /// Cuerpo crudo tal como llegó. Es la evidencia de la que no hay copia en otra parte.
+  cargaUtil        String   @db.NVarChar(Max)
+  fechaRecepcion   DateTime @db.DateTime2
+
+  @@index([idCheckout])
+  @@index([fechaRecepcion])
+}
+
 model AperturaCaja {
-  id                 Int          @id @default(autoincrement())
+  id                 Int               @id @default(autoincrement())
   idUsuario          Int
-  fechaCreacion      DateTime     @db.DateTime2
-  fechaActualizacion DateTime?    @db.DateTime2
+  fechaCreacion      DateTime          @db.DateTime2
+  fechaActualizacion DateTime?         @db.DateTime2
   idEstado           Int
-  montoInicial       Decimal      @db.Decimal(18, 4)
-  observaciones      String?      @db.NVarChar(Max)
-  anulado            Boolean      @default(false)
-  usuario            Usuario        @relation(fields: [idUsuario], references: [id])
+  montoInicial       Decimal           @db.Decimal(18, 4)
+  observaciones      String?           @db.NVarChar(Max)
+  anulado            Boolean           @default(false)
+  usuario            Usuario           @relation(fields: [idUsuario], references: [id])
   cierresCaja        CierreCaja[]
   tickets            Ticket[]
   gruposEmision      GrupoEmision[]
   donaciones         Donacion[]
   lotesOffline       LoteOffline[]
-  estado             EstadoCaja     @relation(fields: [idEstado], references: [id])
+  estado             EstadoCaja        @relation(fields: [idEstado], references: [id])
+  descartesOffline   DescarteOffline[]
 }
 
 model EstadoCaja {
@@ -423,15 +466,15 @@ model EstadoCaja {
 }
 
 model CierreCaja {
-  id             Int          @id @default(autoincrement())
-  idApertura     Int
-  fechaCierre    DateTime     @db.DateTime2
-  montoFinal     Decimal      @db.Decimal(18, 4)
-  montoEsperado  Decimal?     @db.Decimal(18, 4)
-  diferencia     Decimal?     @db.Decimal(18, 4)
-  observaciones  String?      @db.NVarChar(Max)
-  anulado        Boolean      @default(false)
-  aperturaCaja   AperturaCaja @relation(fields: [idApertura], references: [id])
+  id            Int          @id @default(autoincrement())
+  idApertura    Int
+  fechaCierre   DateTime     @db.DateTime2
+  montoFinal    Decimal      @db.Decimal(18, 4)
+  montoEsperado Decimal?     @db.Decimal(18, 4)
+  diferencia    Decimal?     @db.Decimal(18, 4)
+  observaciones String?      @db.NVarChar(Max)
+  anulado       Boolean      @default(false)
+  aperturaCaja  AperturaCaja @relation(fields: [idApertura], references: [id])
 
   @@index([fechaCierre])
   @@index([idApertura])
@@ -472,15 +515,15 @@ model ActividadesParque {
 /// almacenar binarios en la base la haría crecer sin control y penalizaría cada
 /// consulta que tocara la tabla.
 model ImagenActividad {
-  id            Int      @id @default(autoincrement())
-  idActividad   Int
+  id             Int      @id @default(autoincrement())
+  idActividad    Int
   /// Nombre generado por el servidor; nunca el que envió el cliente.
-  archivo       String   @db.NVarChar(255)
-  nombreOriginal String  @db.NVarChar(255)
-  mimeType      String   @db.NVarChar(100)
-  tamanoBytes   Int
-  orden         Int      @default(0)
-  fechaCreacion DateTime @db.DateTime2
+  archivo        String   @db.NVarChar(255)
+  nombreOriginal String   @db.NVarChar(255)
+  mimeType       String   @db.NVarChar(100)
+  tamanoBytes    Int
+  orden          Int      @default(0)
+  fechaCreacion  DateTime @db.DateTime2
 
   actividad ActividadesParque @relation(fields: [idActividad], references: [id], onDelete: Cascade)
 
@@ -505,7 +548,7 @@ model Bitacora {
   descripcion   String   @db.NVarChar(Max)
   fecha         DateTime @db.DateTime2
 
-  usuario       Usuario? @relation(fields: [idUsuario], references: [id], onDelete: SetNull)
+  usuario Usuario? @relation(fields: [idUsuario], references: [id], onDelete: SetNull)
 
   /// La bitácora crece con cada mutación del sistema y es la tabla más grande a medio
   /// plazo. Sin estos índices, filtrar por fecha en un reporte de auditoría obliga a
@@ -515,7 +558,6 @@ model Bitacora {
   @@index([modulo, fecha])
   @@index([idUsuario, fecha])
 }
-
 
 // ---------------------------------------------------------------------------
 // Venta offline — ver ESPECIFICACION_OFFLINE.md
@@ -555,13 +597,13 @@ model LoteOffline {
 /// Además hace que `POST /tickets/validar` responda 404 a un folio aún no vendido
 /// sin escribir código: no hay fila que encontrar en `Ticket`.
 model FolioReservado {
-  id           Int      @id @default(autoincrement())
+  id           Int    @id @default(autoincrement())
   idLote       Int
-  numeroTicket String   @unique @db.NVarChar(30)
+  numeroTicket String @unique @db.NVarChar(30)
   /// HMAC del folio, idéntica a la que llevará el ticket al emitirse.
-  firma        String   @db.NVarChar(128)
+  firma        String @db.NVarChar(128)
   /// 'RESERVADO' | 'EMITIDO' | 'NO_UTILIZADO' | 'INVALIDADO'
-  estado       String   @default("RESERVADO") @db.NVarChar(20)
+  estado       String @default("RESERVADO") @db.NVarChar(20)
   /// Se llena al emitir. Un folio no puede respaldar dos ventas, pero **el único
   /// tampoco se declara acá**: mientras están en RESERVADO todos los folios lo
   /// tienen en NULL, y SQL Server solo admite un NULL por índice único. Se crea
@@ -572,4 +614,101 @@ model FolioReservado {
   ticket Ticket?     @relation(fields: [idTicket], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([idLote, estado])
+}
+
+/// Taquilla registrada para emitir sin conexión.
+///
+/// El QR del pase es una firma. Hasta ahora la ponía el servidor con HMAC, lo que
+/// obligaba a repartir folios pre-firmados antes de perder la red: de ahí salían
+/// los lotes. Con una llave por dispositivo, la taquilla firma sus propios pases y
+/// el servidor los verifica con la pública, sin reservar nada por adelantado.
+///
+/// El precio es explícito: un dispositivo con su llave puede emitir pases válidos
+/// que el servidor no conoce hasta que sincronice. Por eso existe `revocado`, la
+/// serie acota qué folios puede producir, y `ultimoCorrelativo` deja detectar
+/// saltos al conciliar.
+model DispositivoTaquilla {
+  id            Int     @id @default(autoincrement())
+  /// Identificador estable que genera el navegador y guarda en IndexedDB.
+  idDispositivo String  @unique @db.NVarChar(64)
+  nombre        String? @db.NVarChar(100)
+
+  /// Serie propia de folios ('D03'). Dos taquillas no pueden chocar de correlativo
+  /// porque no comparten serie, así que ninguna necesita consultar al servidor.
+  serie String @unique @db.NVarChar(8)
+
+  /// Llave pública ECDSA P-256, SPKI en base64. La privada nunca sale del navegador.
+  llavePublica String @db.NVarChar(Max)
+
+  /// Mayor correlativo que el dispositivo declaró. Un salto al sincronizar delata
+  /// folios emitidos y no subidos.
+  ultimoCorrelativo Int @default(0)
+
+  /// Folios de los que la taquilla SÍ rindió cuentas: se convirtieron en ticket o
+  /// se declararon descartados. La resta con `ultimoCorrelativo` da los folios que
+  /// se emitieron y de los que nadie respondió — que es lo que un cobro desviado
+  /// deja detrás cuando quien lo desvía simplemente no lo declara.
+  foliosRendidos Int @default(0)
+
+  /// Revocar corta la validación de sus pases: es lo que se usa si se pierde el
+  /// equipo. No borra nada de lo ya emitido.
+  revocado Boolean @default(false)
+
+  idUsuarioRegistro Int
+  usuarioRegistro   Usuario @relation(fields: [idUsuarioRegistro], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  fechaCreacion      DateTime  @db.DateTime2
+  fechaActualizacion DateTime? @db.DateTime2
+  ultimoUso          DateTime? @db.DateTime2
+
+  tickets   Ticket[]
+  descartes DescarteOffline[]
+
+  @@index([revocado])
+}
+
+/// Cobro hecho sin conexión y descartado en el dispositivo antes de subirlo.
+///
+/// Existe porque es la única operación del sistema donde puede desaparecer dinero
+/// sin dejar rastro: esa venta nunca llegó al servidor, así que sin esta
+/// declaración no hay bitácora, ni arqueo, ni reporte donde aparezca.
+///
+/// Declararlo no impide el desvío —quien controle el equipo puede no declarar— pero
+/// convierte el silencio en un hueco visible: el folio sigue contando en
+/// `ultimoCorrelativo` y no suma en `foliosRendidos`.
+model DescarteOffline {
+  id           Int    @id @default(autoincrement())
+  numeroTicket String @unique @db.NVarChar(30)
+
+  /// Lo que la taquilla declaró haber cobrado. Es la cifra que alguien tiene que
+  /// explicar, así que se guarda aunque la venta nunca haya existido aquí.
+  montoDeclarado Decimal @db.Decimal(18, 4)
+
+  /**
+   * 'DESCARTADO' o 'ANULADO'. Los dos consumen un folio que nunca será ticket, pero
+   * significan cosas distintas: descartar es tirar un cobro ya hecho —dinero que
+   * alguien tiene que explicar— y anular es una venta que no llegó a existir.
+   * Sin separarlos, una taquilla con veinte anulaciones legítimas se ve igual que
+   * una con veinte cobros desviados, y la cifra deja de señalar nada.
+   */
+  tipo String @default("DESCARTADO") @db.NVarChar(20)
+
+  motivo String? @db.NVarChar(255)
+
+  idDispositivoTaquilla Int
+  dispositivo           DispositivoTaquilla @relation(fields: [idDispositivoTaquilla], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  /// Caja a la que habría entrado. Es donde el arqueo va a quedar corto.
+  idAperturaCaja Int
+  aperturaCaja   AperturaCaja @relation(fields: [idAperturaCaja], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  idUsuario Int
+  usuario   Usuario @relation(fields: [idUsuario], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  /// Momento en que el dispositivo dice que se descartó.
+  fechaDescarte DateTime @db.DateTime2
+  fechaCreacion DateTime @db.DateTime2
+
+  @@index([idAperturaCaja])
+  @@index([idDispositivoTaquilla])
 }

@@ -42,10 +42,11 @@ export const bitacoraDetalle: DefinicionReporte = {
   clave: 'bitacora-detalle',
   titulo: 'Bitácora de auditoría',
   descripcion:
-    'Registro cronológico de las acciones realizadas en el sistema durante el período: ' +
-    'fecha, usuario, módulo, acción y descripción de lo que se hizo. Se puede filtrar por ' +
-    'usuario, por módulo o por tipo de acción. Sirve para auditar, rastrear cambios o ' +
-    'saber quién hizo qué y cuándo.',
+    'Qué se hizo en el sistema y cuándo: fecha, usuario, módulo, acción y ' +
+    'descripción, en orden cronológico.',
+  pistasIa:
+    'Se puede filtrar por usuario, por módulo o por tipo de acción. Elígelo para ' +
+    'auditar, rastrear cambios o saber quién hizo qué y cuándo.',
   categoria: 'Bitácora',
   moduloOrigen: 'Bitacora',
   orientacionSugerida: 'horizontal',
@@ -60,17 +61,25 @@ export const bitacoraDetalle: DefinicionReporte = {
       clave: 'modulo',
       etiqueta: 'Módulo',
       tipo: 'modulo',
+      // Los valores siguen en la descripción, recortados: a quien escribe el nombre
+      // del módulo le sirven, y la lista completa queda para el modelo.
       descripcion:
-        'Módulo del sistema donde ocurrió la acción: EmisionTickets, Cajas, Donaciones, ' +
-        'Usuarios, ActividadesParque, Bitacora o Reportes.',
+        'Módulo donde ocurrió la acción: EmisionTickets, Cajas, Donaciones, ' +
+        'Usuarios…',
+      pistasIa:
+        'Valores exactos: EmisionTickets, Cajas, Donaciones, Usuarios, ' +
+        'ActividadesParque, Bitacora o Reportes.',
     },
     {
       clave: 'accion',
       etiqueta: 'Acción',
       tipo: 'accion',
       descripcion:
-        'Tipo de acción registrada, en mayúsculas y con guiones bajos, por ejemplo ' +
-        'EMITIR_TICKET, ANULAR_DONACION, INICIO_SESION o APERTURA_CAJA.',
+        'Tipo de acción, en mayúsculas y con guiones bajos: EMITIR_TICKET, ' +
+        'APERTURA_CAJA…',
+      pistasIa:
+        'Otros ejemplos: ANULAR_DONACION, INICIO_SESION, EDITAR_USUARIO, ' +
+        'GENERAR_REPORTE.',
     },
   ],
 

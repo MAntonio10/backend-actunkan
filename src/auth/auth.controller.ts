@@ -73,7 +73,10 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('logout-todas')
   logoutTodas(@Request() req: any) {
-    return this.authService.logoutTodas(req.user.sub ?? req.user.id, req.user.nombre);
+    return this.authService.logoutTodas(
+      req.user.sub ?? req.user.id,
+      req.user.nombre,
+    );
   }
 
   /** Sesiones activas propias, para poder cerrar una en concreto. */

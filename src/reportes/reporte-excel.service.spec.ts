@@ -12,6 +12,19 @@ function textoDe(celda: ExcelJS.Cell): string {
   return typeof valor === 'object' ? JSON.stringify(valor) : String(valor);
 }
 
+/**
+ * Fila del encabezado de la tabla, buscada por el título de su primera columna.
+ *
+ * Antes iba fijada a mano y cualquier bloque nuevo en la cabecera —los indicadores,
+ * sin ir más lejos— rompía media docena de pruebas que no tenían nada que ver.
+ */
+function filaEncabezado(hoja: ExcelJS.Worksheet, primerTitulo: string): number {
+  for (let fila = 1; fila <= hoja.rowCount; fila += 1) {
+    if (textoDe(hoja.getCell(fila, 1)) === primerTitulo) return fila;
+  }
+  throw new Error(`No se encontró el encabezado '${primerTitulo}'.`);
+}
+
 /** Vuelve a abrir el libro generado: es la única forma de comprobar tipos y formatos. */
 async function abrir(buffer: Buffer): Promise<ExcelJS.Workbook> {
   const libro = new ExcelJS.Workbook();
@@ -74,10 +87,59 @@ describe('ReporteExcelService', () => {
   it('produce un libro que exceljs puede volver a abrir', async () => {
     const libro = await abrir(await servicio.generar(reporteBase()));
 
+    // Con una sola sección no se emite portada: su contenido ya está entero en la
+    // hoja de datos, y como primera pestaña solo lograba que el archivo abriera en
+    // una vista sin la tabla.
+    expect(libro.worksheets.map((h) => h.name)).toEqual(['Por vendedor']);
+  });
+
+  it('con varias secciones sí antepone la portada, y abre en los datos', async () => {
+    const seccion = (titulo: string) => ({
+      titulo,
+      columnas: [{ clave: 'a', titulo: 'A', formato: 'texto' as const }],
+      filas: [{ a: 'x' }],
+    });
+
+    const libro = await abrir(
+      await servicio.generar(
+        reporteBase({ secciones: [seccion('Uno'), seccion('Dos')] }),
+      ),
+    );
+
     expect(libro.worksheets.map((h) => h.name)).toEqual([
       'Resumen',
-      'Por vendedor',
+      'Uno',
+      'Dos',
     ]);
+    expect(libro.views[0]).toMatchObject({ activeTab: 1 });
+  });
+
+  it('cada hoja de datos lleva los indicadores, no solo la portada', async () => {
+    const libro = await abrir(await servicio.generar(reporteBase()));
+    const hoja = libro.getWorksheet('Por vendedor')!;
+
+    const encabezado = filaEncabezado(hoja, 'Vendedor');
+    let texto = '';
+    for (let fila = 1; fila < encabezado; fila += 1) {
+      texto += textoDe(hoja.getCell(fila, 1));
+    }
+
+    expect(texto).toContain('Recaudado');
+    expect(texto).toContain('Q1,170.00');
+  });
+
+  it('las notas también van en la hoja de datos', async () => {
+    const libro = await abrir(
+      await servicio.generar(reporteBase({ notas: ['Nota de prueba.'] })),
+    );
+    const hoja = libro.getWorksheet('Por vendedor')!;
+
+    let texto = '';
+    for (let fila = 1; fila <= hoja.rowCount; fila += 1) {
+      texto += textoDe(hoja.getCell(fila, 1));
+    }
+
+    expect(texto).toContain('Nota de prueba.');
   });
 
   describe('los números tienen que ser números', () => {
@@ -92,8 +154,9 @@ describe('ReporteExcelService', () => {
       const libro = await abrir(await servicio.generar(reporteBase()));
       const hoja = libro.getWorksheet('Por vendedor')!;
 
-      // Fila 7: encabezado en la 6 (título, período, filtros, blanco, encabezado).
-      const celda = hoja.findRow(7)!.getCell(3);
+      const celda = hoja
+        .findRow(filaEncabezado(hoja, 'Vendedor') + 1)!
+        .getCell(3);
 
       expect(typeof celda.value).toBe('number');
       expect(celda.value).toBe(450);
@@ -103,7 +166,9 @@ describe('ReporteExcelService', () => {
     it('escribe los enteros como números', async () => {
       const libro = await abrir(await servicio.generar(reporteBase()));
       const hoja = libro.getWorksheet('Por vendedor')!;
-      const celda = hoja.findRow(7)!.getCell(2);
+      const celda = hoja
+        .findRow(filaEncabezado(hoja, 'Vendedor') + 1)!
+        .getCell(2);
 
       expect(typeof celda.value).toBe('number');
       expect(celda.value).toBe(12);
@@ -113,7 +178,9 @@ describe('ReporteExcelService', () => {
     it('escribe el porcentaje como fracción con formato de porcentaje', async () => {
       const libro = await abrir(await servicio.generar(reporteBase()));
       const hoja = libro.getWorksheet('Por vendedor')!;
-      const celda = hoja.findRow(7)!.getCell(4);
+      const celda = hoja
+        .findRow(filaEncabezado(hoja, 'Vendedor') + 1)!
+        .getCell(4);
 
       expect(celda.value).toBeCloseTo(0.384615, 5);
       expect(celda.numFmt).toBe('0.0%');
@@ -136,7 +203,10 @@ describe('ReporteExcelService', () => {
         ),
       );
 
-      const celda = libro.getWorksheet('Actividades')!.findRow(7)!.getCell(1);
+      const hojaActividades = libro.getWorksheet('Actividades')!;
+      const celda = hojaActividades
+        .findRow(filaEncabezado(hojaActividades, 'Fin') + 1)!
+        .getCell(1);
       expect(celda.value).toBe('Sin vencimiento');
     });
   });
@@ -145,17 +215,21 @@ describe('ReporteExcelService', () => {
     it('usa SUBTOTAL para que se recalcule al filtrar, con el valor como respaldo', async () => {
       const libro = await abrir(await servicio.generar(reporteBase()));
       const hoja = libro.getWorksheet('Por vendedor')!;
-      const celda = hoja.findRow(9)!.getCell(3);
+      const encabezado = filaEncabezado(hoja, 'Vendedor');
+      const celda = hoja.findRow(encabezado + 3)!.getCell(3);
       const valor = celda.value as ExcelJS.CellFormulaValue;
 
-      expect(valor.formula).toMatch(/^SUBTOTAL\(109,C7:C8\)$/);
+      expect(valor.formula).toBe(
+        `SUBTOTAL(109,C${encabezado + 1}:C${encabezado + 2})`,
+      );
       expect(valor.result).toBe(1170);
     });
 
     it('rotula la primera columna del total', async () => {
       const libro = await abrir(await servicio.generar(reporteBase()));
+      const hoja = libro.getWorksheet('Por vendedor')!;
       expect(
-        libro.getWorksheet('Por vendedor')!.findRow(9)!.getCell(1).value,
+        hoja.findRow(filaEncabezado(hoja, 'Vendedor') + 3)!.getCell(1).value,
       ).toBe('TOTAL');
     });
   });
@@ -164,7 +238,10 @@ describe('ReporteExcelService', () => {
     const libro = await abrir(await servicio.generar(reporteBase()));
     const hoja = libro.getWorksheet('Por vendedor')!;
 
-    expect(hoja.views[0]).toMatchObject({ state: 'frozen', ySplit: 6 });
+    expect(hoja.views[0]).toMatchObject({
+      state: 'frozen',
+      ySplit: filaEncabezado(hoja, 'Vendedor'),
+    });
     expect(hoja.autoFilter).toBeTruthy();
   });
 
@@ -172,7 +249,7 @@ describe('ReporteExcelService', () => {
     const libro = await abrir(await servicio.generar(reporteBase()));
     const hoja = libro.getWorksheet('Por vendedor')!;
 
-    // 1 título, 2 título de la sección, 3 período, 4 filtros, 5 en blanco, 6 encabezado.
+    // 1 título, 2 título de la sección, 3 período, 4 filtros.
     expect(textoDe(hoja.getCell(1, 1))).toContain('Ventas por vendedor');
     expect(textoDe(hoja.getCell(2, 1))).toContain('Por vendedor');
     expect(textoDe(hoja.getCell(3, 1))).toContain('1 al 31 de agosto de 2026');
@@ -219,14 +296,23 @@ describe('ReporteExcelService', () => {
         ),
       );
 
-      expect(libro.worksheets[1].name).not.toMatch(/[[\]:*?/\\]/);
+      expect(libro.worksheets[0].name).not.toMatch(/[[\]:*?/\\]/);
     });
   });
 
-  it('lleva los KPIs y las notas a la hoja de resumen', async () => {
+  it('la portada de un reporte de varias secciones lleva KPIs, notas y autoría', async () => {
+    const seccion = (titulo: string) => ({
+      titulo,
+      columnas: [{ clave: 'a', titulo: 'A', formato: 'texto' as const }],
+      filas: [{ a: 'x' }],
+    });
+
     const libro = await abrir(
       await servicio.generar(
-        reporteBase({ notas: ['Los anulados no suman al recaudado.'] }),
+        reporteBase({
+          notas: ['Los anulados no suman al recaudado.'],
+          secciones: [seccion('Uno'), seccion('Dos')],
+        }),
       ),
     );
     const resumen = libro.getWorksheet('Resumen')!;

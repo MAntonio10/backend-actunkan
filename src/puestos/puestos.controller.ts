@@ -52,7 +52,11 @@ export class PuestosController {
     @Body() updatePuestoDto: UpdatePuestoDto,
     @Request() req: any,
   ) {
-    return this.puestosService.update(id, updatePuestoDto, this.getEjecutor(req));
+    return this.puestosService.update(
+      id,
+      updatePuestoDto,
+      this.getEjecutor(req),
+    );
   }
 
   @Patch(':id/activar')

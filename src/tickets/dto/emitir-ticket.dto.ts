@@ -29,7 +29,9 @@ export class CantidadPorCategoriaDto {
 }
 
 export class GuiaEmisionDto {
-  @IsIn(['existente', 'nuevo'], { message: "El modo del guía debe ser 'existente' o 'nuevo'." })
+  @IsIn(['existente', 'nuevo'], {
+    message: "El modo del guía debe ser 'existente' o 'nuevo'.",
+  })
   modo: 'existente' | 'nuevo';
 
   /** Requerido si modo = 'existente'. */
@@ -41,7 +43,9 @@ export class GuiaEmisionDto {
   /** Requeridos si modo = 'nuevo'. */
   @IsOptional()
   @IsString({ message: 'El nombre del guía debe ser una cadena de texto.' })
-  @MaxLength(255, { message: 'El nombre del guía no puede exceder los 255 caracteres.' })
+  @MaxLength(255, {
+    message: 'El nombre del guía no puede exceder los 255 caracteres.',
+  })
   nombre?: string;
 
   @IsOptional()
@@ -50,7 +54,9 @@ export class GuiaEmisionDto {
 
   @IsOptional()
   @IsString({ message: 'El número de carnet debe ser una cadena de texto.' })
-  @MaxLength(50, { message: 'El número de carnet no puede exceder los 50 caracteres.' })
+  @MaxLength(50, {
+    message: 'El número de carnet no puede exceder los 50 caracteres.',
+  })
   numeroCarnet?: string;
 
   /**
@@ -58,16 +64,24 @@ export class GuiaEmisionDto {
    * no tiene carnet; puede ser distinta a la del ticket del visitante.
    */
   @IsOptional()
-  @IsInt({ message: 'El ID de la opción de pago del guía debe ser un número entero.' })
-  @IsPositive({ message: 'El ID de la opción de pago del guía debe ser positivo.' })
+  @IsInt({
+    message: 'El ID de la opción de pago del guía debe ser un número entero.',
+  })
+  @IsPositive({
+    message: 'El ID de la opción de pago del guía debe ser positivo.',
+  })
   idOpcionPagoGuia?: number;
 }
 
 export class EmitirTicketDto {
   @IsNotEmpty({ message: 'El nombre del grupo es obligatorio.' })
   @IsString({ message: 'El nombre del grupo debe ser una cadena de texto.' })
-  @MinLength(2, { message: 'El nombre del grupo debe tener al menos 2 caracteres.' })
-  @MaxLength(255, { message: 'El nombre del grupo no puede exceder los 255 caracteres.' })
+  @MinLength(2, {
+    message: 'El nombre del grupo debe tener al menos 2 caracteres.',
+  })
+  @MaxLength(255, {
+    message: 'El nombre del grupo no puede exceder los 255 caracteres.',
+  })
   nombreGrupo: string;
 
   @IsNotEmpty({ message: 'La atracción es obligatoria.' })
@@ -92,7 +106,9 @@ export class EmitirTicketDto {
   idTipoRecorrido: number;
 
   @IsArray({ message: 'Las cantidades deben enviarse como un arreglo.' })
-  @ArrayMinSize(1, { message: 'Debe indicar al menos una categoría de visitante.' })
+  @ArrayMinSize(1, {
+    message: 'Debe indicar al menos una categoría de visitante.',
+  })
   @ValidateNested({ each: true })
   @Type(() => CantidadPorCategoriaDto)
   cantidades: CantidadPorCategoriaDto[];
@@ -104,7 +120,9 @@ export class EmitirTicketDto {
 
   @IsOptional()
   @IsString({ message: 'Las notas deben ser una cadena de texto.' })
-  @MaxLength(1000, { message: 'Las notas no pueden exceder los 1000 caracteres.' })
+  @MaxLength(1000, {
+    message: 'Las notas no pueden exceder los 1000 caracteres.',
+  })
   notas?: string;
 
   @IsOptional()

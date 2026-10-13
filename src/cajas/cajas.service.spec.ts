@@ -19,14 +19,21 @@ const crearTxMock = () => ({
     update: jest.fn(),
   },
   cierreCaja: { create: jest.fn(), update: jest.fn() },
+  // El bloqueo por lote pendiente resuelve el nombre de la taquilla para poder
+  // nombrarla en el mensaje; sin registro devuelve null y cae al identificador.
+  dispositivoTaquilla: { findUnique: jest.fn().mockResolvedValue(null) },
   estadoCaja: {
     findFirst: jest.fn(({ where }: any) =>
       Promise.resolve(
-        where.nombre === 'Abierta' ? { id: 1, nombre: 'Abierta' } : { id: 2, nombre: 'Cerrada' },
+        where.nombre === 'Abierta'
+          ? { id: 1, nombre: 'Abierta' }
+          : { id: 2, nombre: 'Cerrada' },
       ),
     ),
   },
-  ticketPago: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
+  ticketPago: {
+    aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }),
+  },
   // Las donaciones en efectivo entran al mismo cajón y suman al arqueo.
   donacion: {
     aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }),
@@ -35,9 +42,10 @@ const crearTxMock = () => ({
   ticket: {
     count: jest.fn().mockResolvedValue(0),
     // Ventas offline cobradas por un monto distinto al que correspondía.
-    aggregate: jest
-      .fn()
-      .mockResolvedValue({ _count: { _all: 0 }, _sum: { montoTotal: 0, montoRecalculado: 0 } }),
+    aggregate: jest.fn().mockResolvedValue({
+      _count: { _all: 0 },
+      _sum: { montoTotal: 0, montoRecalculado: 0 },
+    }),
   },
   loteOffline: {
     findFirst: jest.fn().mockResolvedValue(null),
@@ -49,7 +57,9 @@ const crearTxMock = () => ({
     count: jest.fn().mockResolvedValue(0),
     updateMany: jest.fn().mockResolvedValue({ count: 0 }),
   },
-  usuario: { findUnique: jest.fn().mockResolvedValue({ id: 1, nombre: 'QA Tester' }) },
+  usuario: {
+    findUnique: jest.fn().mockResolvedValue({ id: 1, nombre: 'QA Tester' }),
+  },
 });
 
 describe('CajasService', () => {
@@ -70,22 +80,29 @@ describe('CajasService', () => {
       cierreCaja: {
         findMany: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(0),
-        aggregate: jest
-          .fn()
-          .mockResolvedValue({ _sum: { montoFinal: 0, montoEsperado: 0, diferencia: 0 } }),
+        aggregate: jest.fn().mockResolvedValue({
+          _sum: { montoFinal: 0, montoEsperado: 0, diferencia: 0 },
+        }),
       },
-      ticketPago: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
-      donacion: { aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }) },
+      ticketPago: {
+        aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }),
+      },
+      donacion: {
+        aggregate: jest.fn().mockResolvedValue({ _sum: { monto: 0 } }),
+      },
       ticket: {
-        aggregate: jest
-          .fn()
-          .mockResolvedValue({ _count: { _all: 0 }, _sum: { montoTotal: 0, montoRecalculado: 0 } }),
+        aggregate: jest.fn().mockResolvedValue({
+          _count: { _all: 0 },
+          _sum: { montoTotal: 0, montoRecalculado: 0 },
+        }),
       },
       // Decide si la respuesta revela el arqueo. Por defecto: supervisor.
       permisos: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) },
     };
 
-    jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue({} as any);
+    jest
+      .spyOn(BitacoraService, 'registrarEnTransaccion')
+      .mockResolvedValue({} as any);
 
     const modulo: TestingModule = await Test.createTestingModule({
       providers: [CajasService, { provide: PrismaService, useValue: prisma }],
@@ -108,7 +125,11 @@ describe('CajasService', () => {
       expect(res.id).toBe(10);
       expect(tx.aperturaCaja.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ idUsuario: 1, montoInicial: 500, idEstado: 1 }),
+          data: expect.objectContaining({
+            idUsuario: 1,
+            montoInicial: 500,
+            idEstado: 1,
+          }),
         }),
       );
       expect(BitacoraService.registrarEnTransaccion).toHaveBeenCalledWith(
@@ -120,16 +141,16 @@ describe('CajasService', () => {
     it('rechaza abrir una segunda caja si ya hay una abierta', async () => {
       tx.aperturaCaja.findFirst.mockResolvedValue({ id: 7 });
 
-      await expect(service.abrirCaja({ montoInicial: 100 }, EJECUTOR)).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        service.abrirCaja({ montoInicial: 100 }, EJECUTOR),
+      ).rejects.toThrow(ConflictException);
       expect(tx.aperturaCaja.create).not.toHaveBeenCalled();
     });
 
     it('rechaza abrir caja sin ejecutor identificado', async () => {
-      await expect(service.abrirCaja({ montoInicial: 100 }, undefined)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.abrirCaja({ montoInicial: 100 }, undefined),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -155,7 +176,11 @@ describe('CajasService', () => {
       /** Lote todavía vigente: el dispositivo aún puede estar vendiendo. */
       const conLoteActivo = (foliosReservados = 88) => {
         tx.loteOffline.findMany.mockResolvedValue([
-          { id: 7, estado: 'ACTIVO', expiraEn: new Date(Date.now() + 8 * 3600_000) },
+          {
+            id: 7,
+            estado: 'ACTIVO',
+            expiraEn: new Date(Date.now() + 8 * 3600_000),
+          },
         ]);
         tx.folioReservado.count.mockResolvedValue(foliosReservados);
       };
@@ -163,7 +188,11 @@ describe('CajasService', () => {
       /** Lote que venció anoche y que el dispositivo ya reemplazó. */
       const conLoteVencido = () => {
         tx.loteOffline.findMany.mockResolvedValue([
-          { id: 5, estado: 'ACTIVO', expiraEn: new Date(Date.now() - 8 * 3600_000) },
+          {
+            id: 5,
+            estado: 'ACTIVO',
+            expiraEn: new Date(Date.now() - 8 * 3600_000),
+          },
         ]);
         tx.folioReservado.count.mockResolvedValue(88);
       };
@@ -172,8 +201,14 @@ describe('CajasService', () => {
         prepararCajaAbierta(500);
         conLoteActivo(88);
 
-        await expect(service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR)).rejects.toMatchObject({
-          response: { codigo: 'LOTE_OFFLINE_PENDIENTE', idLote: 7, foliosReservados: 88 },
+        await expect(
+          service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR),
+        ).rejects.toMatchObject({
+          response: {
+            codigo: 'LOTE_OFFLINE_PENDIENTE',
+            idLote: 7,
+            foliosReservados: 88,
+          },
         });
         expect(tx.cierreCaja.create).not.toHaveBeenCalled();
       });
@@ -228,7 +263,9 @@ describe('CajasService', () => {
 
           expect(BitacoraService.registrarEnTransaccion).toHaveBeenCalledWith(
             tx,
-            expect.objectContaining({ accion: 'CONCILIAR_LOTE_OFFLINE_VENCIDO' }),
+            expect.objectContaining({
+              accion: 'CONCILIAR_LOTE_OFFLINE_VENCIDO',
+            }),
           );
         });
 
@@ -247,13 +284,23 @@ describe('CajasService', () => {
         it('un vencido y uno vigente juntos: se concilia el vencido y el vigente bloquea', async () => {
           prepararCajaAbierta(500);
           tx.loteOffline.findMany.mockResolvedValue([
-            { id: 5, estado: 'ACTIVO', expiraEn: new Date(Date.now() - 8 * 3600_000) },
-            { id: 8, estado: 'ACTIVO', expiraEn: new Date(Date.now() + 8 * 3600_000) },
+            {
+              id: 5,
+              estado: 'ACTIVO',
+              expiraEn: new Date(Date.now() - 8 * 3600_000),
+            },
+            {
+              id: 8,
+              estado: 'ACTIVO',
+              expiraEn: new Date(Date.now() + 8 * 3600_000),
+            },
           ]);
 
           await expect(
             service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR),
-          ).rejects.toMatchObject({ response: { codigo: 'LOTE_OFFLINE_PENDIENTE', idLote: 8 } });
+          ).rejects.toMatchObject({
+            response: { codigo: 'LOTE_OFFLINE_PENDIENTE', idLote: 8 },
+          });
 
           expect(tx.loteOffline.update).toHaveBeenCalledWith({
             where: { id: 5 },
@@ -273,7 +320,11 @@ describe('CajasService', () => {
         prisma.permisos.findFirst.mockResolvedValue(null); // sin Cajas.Editar
 
         await expect(
-          service.cerrarCaja(1, { montoContado: 500, forzarLoteOffline: true }, EJECUTOR),
+          service.cerrarCaja(
+            1,
+            { montoContado: 500, forzarLoteOffline: true },
+            EJECUTOR,
+          ),
         ).rejects.toThrow(ForbiddenException);
         expect(tx.loteOffline.update).not.toHaveBeenCalled();
       });
@@ -282,7 +333,11 @@ describe('CajasService', () => {
         prepararCajaAbierta(500);
         conLoteActivo(88);
 
-        await service.cerrarCaja(1, { montoContado: 500, forzarLoteOffline: true }, EJECUTOR);
+        await service.cerrarCaja(
+          1,
+          { montoContado: 500, forzarLoteOffline: true },
+          EJECUTOR,
+        );
 
         expect(tx.folioReservado.updateMany).toHaveBeenCalledWith({
           where: { idLote: 7, estado: 'RESERVADO' },
@@ -299,7 +354,11 @@ describe('CajasService', () => {
         prepararCajaAbierta(500);
         conLoteActivo(88);
 
-        await service.cerrarCaja(1, { montoContado: 500, forzarLoteOffline: true }, EJECUTOR);
+        await service.cerrarCaja(
+          1,
+          { montoContado: 500, forzarLoteOffline: true },
+          EJECUTOR,
+        );
 
         expect(BitacoraService.registrarEnTransaccion).toHaveBeenCalledWith(
           tx,
@@ -326,7 +385,11 @@ describe('CajasService', () => {
         prepararCajaAbierta(500);
         conDiscrepancia();
 
-        const res: any = await service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR);
+        const res: any = await service.cerrarCaja(
+          1,
+          { montoContado: 500 },
+          EJECUTOR,
+        );
 
         expect(res.discrepanciaOffline).toEqual({
           tickets: 2,
@@ -346,7 +409,11 @@ describe('CajasService', () => {
         tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 150 } });
         conDiscrepancia();
 
-        const { cierre } = await service.cerrarCaja(1, { montoContado: 650 }, EJECUTOR);
+        const { cierre } = await service.cerrarCaja(
+          1,
+          { montoContado: 650 },
+          EJECUTOR,
+        );
 
         expect(cierre.montoEsperado!.toNumber()).toBe(650);
         expect(cierre.diferencia!.toNumber()).toBe(0);
@@ -355,7 +422,11 @@ describe('CajasService', () => {
       it('es null cuando ninguna venta offline se cobró mal', async () => {
         prepararCajaAbierta(500);
 
-        const res: any = await service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR);
+        const res: any = await service.cerrarCaja(
+          1,
+          { montoContado: 500 },
+          EJECUTOR,
+        );
 
         expect(res.discrepanciaOffline).toBeNull();
       });
@@ -366,7 +437,11 @@ describe('CajasService', () => {
         conDiscrepancia();
         prisma.permisos.findFirst.mockResolvedValue(null);
 
-        const res: any = await service.cerrarCaja(1, { montoContado: 500 }, EJECUTOR);
+        const res: any = await service.cerrarCaja(
+          1,
+          { montoContado: 500 },
+          EJECUTOR,
+        );
 
         expect(res).not.toHaveProperty('discrepanciaOffline');
       });
@@ -389,7 +464,11 @@ describe('CajasService', () => {
       prepararCajaAbierta(500);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 1750 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(
+        1,
+        { montoContado: 1750 },
+        EJECUTOR,
+      );
 
       // 500 + 1250 = 1750
       expect(cierre.montoEsperado!.toNumber()).toBe(1750);
@@ -402,7 +481,11 @@ describe('CajasService', () => {
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
       tx.donacion.aggregate.mockResolvedValue({ _sum: { monto: 200 } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 1950 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(
+        1,
+        { montoContado: 1950 },
+        EJECUTOR,
+      );
 
       // 500 + 1250 + 200 = 1950
       expect(cierre.montoEsperado!.toNumber()).toBe(1950);
@@ -424,7 +507,11 @@ describe('CajasService', () => {
       prepararCajaAbierta(500);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 1740 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(
+        1,
+        { montoContado: 1740 },
+        EJECUTOR,
+      );
 
       expect(cierre.diferencia!.toNumber()).toBe(-10);
     });
@@ -433,7 +520,11 @@ describe('CajasService', () => {
       prepararCajaAbierta(500);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 0 } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 520 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(
+        1,
+        { montoContado: 520 },
+        EJECUTOR,
+      );
 
       expect(cierre.diferencia!.toNumber()).toBe(20);
     });
@@ -442,7 +533,11 @@ describe('CajasService', () => {
       prepararCajaAbierta(300);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: null } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 300 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(
+        1,
+        { montoContado: 300 },
+        EJECUTOR,
+      );
 
       expect(cierre.montoEsperado!.toNumber()).toBe(300);
       expect(cierre.diferencia!.toNumber()).toBe(0);
@@ -452,7 +547,11 @@ describe('CajasService', () => {
       prepararCajaAbierta(0.1);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 0.2 } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 0.3 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(
+        1,
+        { montoContado: 0.3 },
+        EJECUTOR,
+      );
 
       // Con aritmética float daría 0.30000000000000004 y una diferencia distinta de 0.
       expect(cierre.montoEsperado!.toString()).toBe('0.3');
@@ -480,7 +579,11 @@ describe('CajasService', () => {
       prepararCajaAbierta(500);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 1740 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(
+        1,
+        { montoContado: 1740 },
+        EJECUTOR,
+      );
 
       expect(cierre.montoEsperado).toBeUndefined();
       expect(cierre.diferencia).toBeUndefined();
@@ -493,7 +596,11 @@ describe('CajasService', () => {
       prepararCajaAbierta(500);
       tx.ticketPago.aggregate.mockResolvedValue({ _sum: { monto: 1250 } });
 
-      const { cierre } = await service.cerrarCaja(1, { montoContado: 1740 }, EJECUTOR);
+      const { cierre } = await service.cerrarCaja(
+        1,
+        { montoContado: 1740 },
+        EJECUTOR,
+      );
 
       expect(cierre.montoEsperado!.toNumber()).toBe(1750);
       expect(cierre.diferencia!.toNumber()).toBe(-10);
@@ -520,18 +627,18 @@ describe('CajasService', () => {
         estado: { nombre: 'Cerrada' },
       });
 
-      await expect(service.cerrarCaja(1, { montoContado: 100 }, EJECUTOR)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.cerrarCaja(1, { montoContado: 100 }, EJECUTOR),
+      ).rejects.toThrow(BadRequestException);
       expect(tx.cierreCaja.create).not.toHaveBeenCalled();
     });
 
     it('rechaza cerrar una caja inexistente', async () => {
       tx.aperturaCaja.findUnique.mockResolvedValue(null);
 
-      await expect(service.cerrarCaja(404, { montoContado: 100 }, EJECUTOR)).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.cerrarCaja(404, { montoContado: 100 }, EJECUTOR),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -550,7 +657,9 @@ describe('CajasService', () => {
         expect.objectContaining({ where: { id: 50 }, data: { anulado: true } }),
       );
       expect(tx.aperturaCaja.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ idEstado: 1 }) }),
+        expect.objectContaining({
+          data: expect.objectContaining({ idEstado: 1 }),
+        }),
       );
     });
 
@@ -561,7 +670,9 @@ describe('CajasService', () => {
         cierresCaja: [],
       });
 
-      await expect(service.anularCierre(1, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.anularCierre(1, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     // INVARIANTE DEL SISTEMA: solo una caja abierta a la vez.
@@ -572,10 +683,15 @@ describe('CajasService', () => {
         cierresCaja: [{ id: 50, anulado: false }],
       });
       // Otra caja distinta ya está abierta en el sistema
-      tx.aperturaCaja.findFirst.mockResolvedValue({ id: 2, estado: { nombre: 'Abierta' } });
+      tx.aperturaCaja.findFirst.mockResolvedValue({
+        id: 2,
+        estado: { nombre: 'Abierta' },
+      });
       tx.aperturaCaja.update.mockResolvedValue({ id: 1 });
 
-      await expect(service.anularCierre(1, EJECUTOR)).rejects.toThrow(ConflictException);
+      await expect(service.anularCierre(1, EJECUTOR)).rejects.toThrow(
+        ConflictException,
+      );
     });
   });
 
@@ -591,7 +707,9 @@ describe('CajasService', () => {
       await service.anularApertura(1, EJECUTOR);
 
       expect(tx.aperturaCaja.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ anulado: true }) }),
+        expect.objectContaining({
+          data: expect.objectContaining({ anulado: true }),
+        }),
       );
       expect((tx.aperturaCaja as any).delete).toBeUndefined();
     });
@@ -605,7 +723,9 @@ describe('CajasService', () => {
       });
       tx.ticket.count.mockResolvedValue(3);
 
-      await expect(service.anularApertura(1, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.anularApertura(1, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(tx.aperturaCaja.update).not.toHaveBeenCalled();
     });
 
@@ -617,7 +737,9 @@ describe('CajasService', () => {
       });
       tx.donacion.count.mockResolvedValue(1);
 
-      await expect(service.anularApertura(1, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.anularApertura(1, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(tx.aperturaCaja.update).not.toHaveBeenCalled();
     });
 
@@ -634,7 +756,9 @@ describe('CajasService', () => {
 
       // El conteo filtra por anulado: false; si no hay activos, la anulación procede.
       expect(tx.ticket.count).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { idAperturaCaja: 1, anulado: false } }),
+        expect.objectContaining({
+          where: { idAperturaCaja: 1, anulado: false },
+        }),
       );
       expect(tx.aperturaCaja.update).toHaveBeenCalled();
     });
@@ -646,7 +770,9 @@ describe('CajasService', () => {
         estado: { nombre: 'Cerrada' },
       });
 
-      await expect(service.anularApertura(1, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.anularApertura(1, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('rechaza anular una apertura ya anulada', async () => {
@@ -656,7 +782,9 @@ describe('CajasService', () => {
         estado: { nombre: 'Abierta' },
       });
 
-      await expect(service.anularApertura(1, EJECUTOR)).rejects.toThrow(BadRequestException);
+      await expect(service.anularApertura(1, EJECUTOR)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -665,7 +793,9 @@ describe('CajasService', () => {
       id: 1,
       anulado: false,
       fechaCreacion: new Date(),
-      cierresCaja: [{ id: 9, montoFinal: 500, montoEsperado: 585, diferencia: -85 }],
+      cierresCaja: [
+        { id: 9, montoFinal: 500, montoEsperado: 585, diferencia: -85 },
+      ],
       ...extra,
     });
 
@@ -677,32 +807,37 @@ describe('CajasService', () => {
     });
 
     it('devuelve el sobre paginado, no un arreglo plano', async () => {
-      const res: any = await service.findAll({} as any, 1);
+      const res: any = await service.findAll({}, 1);
 
       expect(Object.keys(res)).toEqual(['datos', 'total', 'pagina', 'limite']);
       expect(res.total).toBe(43);
     });
 
     it('traduce página y límite a skip/take', async () => {
-      await service.findAll({ pagina: 3, limite: 15 } as any, 1);
+      await service.findAll({ pagina: 3, limite: 15 }, 1);
 
       expect(argsFindMany()).toMatchObject({ skip: 30, take: 15 });
     });
 
     it('el total se cuenta con el mismo filtro que las filas devueltas', async () => {
-      await service.findAll({ incluirAnulados: 'true', estado: 'Abierta' } as any, 1);
+      await service.findAll({ incluirAnulados: 'true', estado: 'Abierta' }, 1);
 
-      expect(prisma.aperturaCaja.count.mock.calls[0][0].where).toEqual(argsFindMany().where);
+      expect(prisma.aperturaCaja.count.mock.calls[0][0].where).toEqual(
+        argsFindMany().where,
+      );
     });
 
     it('ordena por fecha con desempate por id', async () => {
-      await service.findAll({} as any, 1);
+      await service.findAll({}, 1);
 
-      expect(argsFindMany().orderBy).toEqual([{ fechaCreacion: 'desc' }, { id: 'desc' }]);
+      expect(argsFindMany().orderBy).toEqual([
+        { fechaCreacion: 'desc' },
+        { id: 'desc' },
+      ]);
     });
 
     it('el supervisor ve el arqueo completo', async () => {
-      const res: any = await service.findAll({} as any, 1);
+      const res: any = await service.findAll({}, 1);
 
       expect(res.datos[0].cierresCaja[0]).toHaveProperty('montoEsperado');
     });
@@ -712,7 +847,7 @@ describe('CajasService', () => {
     it('sin permiso Cajas.Editar oculta el arqueo pero no descarta filas', async () => {
       prisma.permisos.findFirst.mockResolvedValue(null);
 
-      const res: any = await service.findAll({} as any, 2);
+      const res: any = await service.findAll({}, 2);
 
       expect(res.datos).toHaveLength(1);
       expect(res.total).toBe(43);
@@ -724,7 +859,7 @@ describe('CajasService', () => {
 
   describe('historialCierres', () => {
     it('reparte de 20 en 20 y cierra el orden con un desempate por id', async () => {
-      const res: any = await service.historialCierres({} as any);
+      const res: any = await service.historialCierres({});
 
       expect(res.limite).toBe(20);
       expect(prisma.cierreCaja.findMany.mock.calls[0][0].orderBy).toEqual([
@@ -734,7 +869,7 @@ describe('CajasService', () => {
     });
 
     it('el total se cuenta con el mismo filtro que las filas devueltas', async () => {
-      await service.historialCierres({ soloAnulados: 'true' } as any);
+      await service.historialCierres({ soloAnulados: 'true' });
 
       expect(prisma.cierreCaja.count.mock.calls[0][0].where).toEqual(
         prisma.cierreCaja.findMany.mock.calls[0][0].where,

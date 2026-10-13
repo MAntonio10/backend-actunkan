@@ -33,7 +33,8 @@ export type TipoGraficaSugerido = 'linea' | 'barra' | 'dona' | 'embudo';
 export type GranoTemporal = 'dia' | 'semana' | 'mes';
 
 /** Cómo se escribe un valor de esta serie. Igual que en los reportes. */
-export type FormatoValorDashboard = 'moneda' | 'entero' | 'decimal' | 'porcentaje';
+export type FormatoValorDashboard =
+  'moneda' | 'entero' | 'decimal' | 'porcentaje';
 
 export interface PuntoSerie {
   /** Lo que se lee en el eje. */

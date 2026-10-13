@@ -26,6 +26,7 @@ const TIPOS_VISITANTE = [
   { codigo: 'nino', nombre: 'Niño (7 años o más)' },
   { codigo: 'nino_menor', nombre: 'Niño menor de 7 años' },
   { codigo: 'centro_educativo', nombre: 'Centro educativo (nivel primario)' },
+  { codigo: 'visitante_especial', nombre: 'Visitante especial' },
 ];
 
 const TIPOS_RECORRIDO = [
@@ -44,8 +45,8 @@ const OPCIONES_PAGO = [
  * vigente es la forma de representar "no aplica".
  */
 const TARIFAS: Record<string, Record<string, number>> = {
-  nacional: { adulto: 20, nino: 10, nino_menor: 0, centro_educativo: 5 },
-  extranjero: { adulto: 25, nino: 25, nino_menor: 0 },
+  nacional: { adulto: 20, nino: 10, nino_menor: 0, centro_educativo: 5, visitante_especial: 0 },
+  extranjero: { adulto: 25, nino: 25, nino_menor: 0, visitante_especial: 0 },
 };
 
 const PRECIO_TICKET_GUIA = 15;

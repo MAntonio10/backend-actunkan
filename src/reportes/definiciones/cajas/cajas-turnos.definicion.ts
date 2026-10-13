@@ -73,10 +73,12 @@ export const cajasTurnos: DefinicionReporte = {
   clave: 'cajas-turnos',
   titulo: 'Turnos de caja',
   descripcion:
-    'Turnos de caja abiertos en el período: quién abrió, a qué hora abrió y cerró, con ' +
-    'cuánto empezó y cuánto contó al cerrar. Para un supervisor incluye además el monto ' +
-    'esperado y la diferencia de cada arqueo. Responde a preguntas sobre cajas, turnos, ' +
-    'aperturas, cierres, cuadres, faltantes o sobrantes.',
+    'Turnos de caja del período: quién abrió, a qué hora abrió y cerró, con cuánto ' +
+    'empezó y cuánto contó.',
+  pistasIa:
+    'Para un supervisor incluye además el monto esperado y la diferencia de cada ' +
+    'arqueo. Responde a preguntas sobre cajas, turnos, aperturas, cierres, cuadres, ' +
+    'faltantes o sobrantes.',
   categoria: 'Cajas',
   moduloOrigen: 'Cajas',
   orientacionSugerida: 'horizontal',

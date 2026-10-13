@@ -9,13 +9,18 @@ describe('BitacoraService', () => {
   beforeEach(async () => {
     prisma = {
       bitacora: {
-        findMany: jest.fn().mockResolvedValue([{ id: 15, accion: 'CREAR_USUARIO' }]),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ id: 15, accion: 'CREAR_USUARIO' }]),
         count: jest.fn().mockResolvedValue(9432),
       },
     };
 
     const modulo: TestingModule = await Test.createTestingModule({
-      providers: [BitacoraService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        BitacoraService,
+        { provide: PrismaService, useValue: prisma },
+      ],
     }).compile();
 
     service = modulo.get<BitacoraService>(BitacoraService);
@@ -50,7 +55,9 @@ describe('BitacoraService', () => {
     it('el total se cuenta con el mismo filtro que las filas devueltas', async () => {
       await service.findAll({ modulo: 'Usuarios', accion: 'CREAR' });
 
-      expect(prisma.bitacora.count.mock.calls[0][0].where).toEqual(argsFindMany().where);
+      expect(prisma.bitacora.count.mock.calls[0][0].where).toEqual(
+        argsFindMany().where,
+      );
     });
 
     // El desempate pesa aquí más que en ningún otro listado: la bitácora escribe
@@ -58,7 +65,73 @@ describe('BitacoraService', () => {
     it('ordena por fecha con desempate por id', async () => {
       await service.findAll({});
 
-      expect(argsFindMany().orderBy).toEqual([{ fecha: 'desc' }, { id: 'desc' }]);
+      expect(argsFindMany().orderBy).toEqual([
+        { fecha: 'desc' },
+        { id: 'desc' },
+      ]);
+    });
+
+    /**
+     * El orden lo decide quien consulta porque con la paginación en el servidor el
+     * frontend ya no puede: invertir el arreglo recibido reordena la página visible
+     * y nada más, así que el control diría «más antiguo primero» mostrando los 20
+     * registros más recientes al revés.
+     */
+    it('puede pedirse del más antiguo al más reciente', async () => {
+      await service.findAll({ orden: 'asc' });
+
+      expect(argsFindMany().orderBy).toEqual([{ fecha: 'asc' }, { id: 'asc' }]);
+    });
+
+    /**
+     * Lo que rompería en silencio: un `id: 'desc'` fijo. El listado se vería
+     * ordenado —la fecha manda— pero dentro de cada segundo repetido las filas
+     * saldrían al revés del resto, y en la bitácora casi todos los segundos están
+     * repetidos. Es justo la clase de error que el desempate venía a evitar.
+     */
+    it('el desempate acompaña al sentido de la fecha, no queda fijo', async () => {
+      await service.findAll({ orden: 'asc' });
+
+      const [porFecha, porId] = argsFindMany().orderBy;
+      expect(porId.id).toBe(porFecha.fecha);
+    });
+
+    it('un orden no reconocido cae en el de siempre', async () => {
+      await service.findAll({ orden: 'DESC' as any });
+
+      expect(argsFindMany().orderBy).toEqual([
+        { fecha: 'desc' },
+        { id: 'desc' },
+      ]);
+    });
+
+    it('la búsqueda libre abarca los cinco campos que mostraba la pantalla', async () => {
+      await service.findAll({ buscar: 'anular' });
+
+      expect(argsFindMany().where.OR).toEqual([
+        { descripcion: { contains: 'anular' } },
+        { accion: { contains: 'anular' } },
+        { modulo: { contains: 'anular' } },
+        { usuarioNombre: { contains: 'anular' } },
+        { usuario: { correo: { contains: 'anular' } } },
+      ]);
+    });
+
+    // Si el contador no viera la búsqueda, el paginador anunciaría páginas que no
+    // existen: 1627 resultados para un término que solo tiene tres.
+    it('el total también respeta la búsqueda', async () => {
+      await service.findAll({ buscar: 'anular' });
+
+      expect(prisma.bitacora.count.mock.calls[0][0].where).toEqual(
+        argsFindMany().where,
+      );
+    });
+
+    it('la búsqueda se combina con los filtros, no los reemplaza', async () => {
+      await service.findAll({ buscar: 'anular', modulo: 'Cajas' });
+
+      expect(argsFindMany().where.modulo).toEqual({ contains: 'Cajas' });
+      expect(argsFindMany().where.OR).toHaveLength(5);
     });
 
     it('filtra por módulo y acción con coincidencia parcial', async () => {
@@ -71,7 +144,10 @@ describe('BitacoraService', () => {
     });
 
     it('acota por rango de fechas', async () => {
-      await service.findAll({ fechaInicio: '2026-01-01', fechaFin: '2026-01-31' });
+      await service.findAll({
+        fechaInicio: '2026-01-01',
+        fechaFin: '2026-01-31',
+      });
 
       expect(argsFindMany().where.fecha).toEqual({
         gte: new Date('2026-01-01'),

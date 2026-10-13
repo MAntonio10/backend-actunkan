@@ -11,6 +11,31 @@ Complementa a `DOCUMENTACION_ENDPOINTS.md`; no lo reemplaza. Las secciones citad
 
 ---
 
+> ## ⚠️ Este documento describe el modelo ANTERIOR
+>
+> **Lo vigente es la firma por dispositivo**, no el pre-firmado de folios por lote. El modelo que
+> describe este archivo —el servidor reserva folios mientras hay red, el equipo los consume— se
+> implementó, funciona y sigue en pie, pero **ya no es el camino que usa la taquilla**: el equipo
+> registra su llave pública ECDSA P-256 una vez (`POST /dispositivos`, §18.0 de
+> `DOCUMENTACION_ENDPOINTS.md`) y después firma sus propios pases, sin reservar nada por adelantado.
+>
+> **Qué sigue valiendo de acá:** la semántica de la cola, la idempotencia por `idLocal`, el
+> resultado por ítem, el acotado de la fecha del dispositivo, «solo efectivo» y la verificación de
+> la §0 sobre cómo se firma el QR. Todo eso es común a los dos modelos.
+>
+> **Qué leer como historia:** la reserva de folios, los estados de `FolioReservado`, la
+> conciliación de lotes y la caja atada al lote.
+>
+> **El contrato vivo es `DOCUMENTACION_ENDPOINTS.md` §18**, más el código. Si los dos documentos se
+> contradicen, gana el otro.
+>
+> Este aviso existe porque la versión sin él ya costó caro: el frontend tenía un comentario que
+> prometía «si falla el registro, se cae al modelo de folios reservados» sobre un archivo que ya
+> estaba borrado, y el fallo quedó silencioso. Una afirmación que fue cierta y dejó de serlo no
+> avisa sola.
+
+---
+
 ## 0. Verificación previa — resuelta
 
 Todo este diseño dependía de una sola suposición:

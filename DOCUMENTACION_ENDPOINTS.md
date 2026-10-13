@@ -110,7 +110,7 @@ Las rutas `/modulos`, `/acciones` y `/modulo-acciones` **exigen permiso sobre `U
 
 El menú **no** depende de ningún permiso: usa `GET /modulos/mis-modulos` (ver 4.7), que solo exige sesión válida. Así, cambiar la asignación de permisos nunca deja a un usuario sin navegación.
 
-Pendiente de implementar (aún sin código): `Sincronizacion`.
+**Ya no hay módulos pendientes.** Los cuatro últimos en incorporarse —`Donaciones`, `ActividadesParque`, `Reportes` y `Sincronizacion`— existen en la base como asignables (ids 19 a 22) y tienen código. `Sincronizacion` es el más reciente: se registra con `npx ts-node prisma/seed-sincronizacion.ts`, es sub-módulo de `EmisionTickets` y separa `Ver` (entrar a la pantalla de sincronización) de `Anular` (descartar una venta cobrada sin conexión antes de subirla), que es el que importa porque ese dinero ya se cobró y todavía no existe en el servidor.
 
 > **El permiso no siempre es la última palabra.** En `ActividadesParque`, editar y anular quedan además reservados al **autor** de cada publicación: tener la acción habilita publicar y mantener lo propio, no tocar lo ajeno (ver sección 16).
 
@@ -227,7 +227,7 @@ Todos los listados de volumen relevante se paginan **en el servidor**. Aceptan l
 - **Módulo nuevo:** `/reportes` (sección 19), con **18 reportes predeterminados** que cubren los seis módulos principales: Tickets, Cajas, Donaciones, Bitácora, Usuarios y Actividades.
 - **Tres formatos:** JSON para pintar la tabla, PDF para imprimir y Excel para filtrar y sumar. El PDF y el Excel se generan **en el backend**; el frontend solo elige a qué URL navegar.
 - **Los números del Excel son números**, con su formato de moneda: la hoja trae autofiltro, encabezados congelados y totales con `SUBTOTAL`, que se recalculan al filtrar dentro de la hoja.
-- **Reportes a medida en lenguaje natural:** `POST /reportes/interpretar` traduce una frase como *"ventas del vendedor Juan en las cuevas en agosto"* a uno de esos mismos 18 reportes. **La IA traduce, no consulta**: nunca escribe SQL, nunca ve datos y nunca redacta una cifra.
+- **Reportes a medida en lenguaje natural:** `POST /reportes/interpretar` traduce una frase como *"ventas del colaborador Juan en las cuevas en agosto"* a uno de esos mismos 18 reportes. **La IA traduce, no consulta**: nunca escribe SQL, nunca ve datos y nunca redacta una cifra.
 - **El uso diario no gasta cuota:** los 18 reportes predeterminados no salen a internet en ningún momento. Solo la petición escrita a mano consume una llamada, y su respuesta trae ya la URL de la vía normal para que repetirla sea gratis.
 - **A la IA no viaja ningún dato del negocio:** solo la frase del usuario y la descripción estructural del catálogo. Los nombres propios ("Juan", "cuevas") los resuelve el backend contra su propia base.
 - **Permisos en tres capas:** `Reportes.Ver` / `Reportes.Exportar` abren el módulo, cada reporte exige además `Ver` sobre el módulo dueño de sus datos, y las cifras del arqueo siguen reservadas a `Cajas.Editar` (19.6). Estrena la acción `'Exportar'`, que estaba en el catálogo sin usarse.
@@ -1122,10 +1122,11 @@ Devuelve los módulos a los que el usuario de la sesión tiene acceso, con las a
 ## 7. Bitácora y Auditoría (`/bitacora`)
 
 ### 7.1 `GET /bitacora` (Listar Bitácora de Actividades)
-Obtiene los registros de auditoría ordenados descendentemente por fecha en huso horario **UTC-6**.
+Obtiene los registros de auditoría por fecha en huso horario **UTC-6**, del más reciente al más antiguo salvo que se pida `orden=asc`.
 
 * **Permiso requerido:** `Módulo: 'Bitacora'`, `Acción: 'Ver'`
 * **Query Params (Todos opcionales):**
+  - `buscar` (texto): Búsqueda libre. Coincidencia parcial sobre `descripcion`, `accion`, `modulo`, `usuarioNombre` y el correo del ejecutor; basta que uno coincida. Se **combina** con los demás filtros: `?modulo=Cajas&buscar=anular` exige ambos.
   - `idUsuario` (número): Filtrar por ID de usuario ejecutor.
   - `modulo` (texto): Filtra por módulo, por **coincidencia parcial** (`contains`), no por igualdad.
   - `accion` (texto): Filtra por tipo de acción, también por coincidencia parcial (ej. `INICIO_SESION`, `EMITIR_TICKET`, `ANULAR_DONACION`, `CIERRE_CAJA`, `ASIGNAR_PERMISOS`). Hay 45 acciones distintas registradas.
@@ -1133,6 +1134,7 @@ Obtiene los registros de auditoría ordenados descendentemente por fecha en huso
   - `fechaFin` (ISO Date string): Filtrar hasta fecha.
   - `pagina` (número, defecto `1`): Página a devolver.
   - `limite` (número, defecto `20`, máx. `200`): Registros por página.
+  - `orden` (`asc` | `desc`, defecto `desc`): Sentido del orden por fecha. El desempate por `id` acompaña al mismo sentido, así que las páginas son estables en los dos. Cualquier otro valor responde `400`.
 
 > **`modulo` y `accion` son texto libre que escribe cada servicio al registrar, no claves foráneas.** `Bitacora.modulo` **no** es una FK a la tabla `Modulo` y sus valores no coinciden con ella: la bitácora escribe `Tickets`, `Auth`, `Gastos`, `TiposGasto` y `Modulos`, que no existen como módulo; y varios módulos (`Puestos`, `Guias`, `Atracciones`, `Paises`…) no tienen ni un registro.
 >
@@ -2387,22 +2389,30 @@ Renombrar un sector se refleja de inmediato en todas las actividades que lo usan
 
 ---
 
-## 18. Venta offline (`/tickets/lotes-offline`, `/tickets/emitir-offline`)
+## 18. Venta offline (`/dispositivos`, `/tickets/lotes-offline`, `/tickets/emitir-offline`)
 
 Permite vender tickets **sin conexión a internet**, entregando al visitante un pase con QR **válido desde el momento de la venta**.
 
-La idea es simple: el servidor entrega **folios pre-firmados** mientras hay red; el dispositivo los consume después, sin ella; al reconectar sube la cola y cada folio se convierte en un ticket real.
+**Hay dos modelos, y el vigente es el primero.**
 
-Diseño completo en `ESPECIFICACION_OFFLINE.md`.
+| Modelo | Cómo funciona | Estado |
+|---|---|---|
+| **Por dispositivo** (vigente) | La taquilla registra su llave pública ECDSA P-256 una vez con red (18.0) y después **firma sus propios pases**, sin pedir folios por adelantado. Su serie (`D04`) va dentro de cada folio, así que el pase dice de qué equipo salió | **El que usa la taquilla** |
+| **Por lote** | El servidor entrega **folios pre-firmados** mientras hay red; el equipo los consume sin ella; al reconectar cada folio se vuelve un ticket | Implementado y funcionando; ya no es el camino normal |
+
+Los dos comparten todo lo que importa: la cola, la idempotencia por `idLocal`, el resultado por ítem, el acotado de la fecha del dispositivo y «solo efectivo». Lo que cambia es de dónde sale el folio y qué lo respalda — una reserva previa, o una firma.
+
+> `ESPECIFICACION_OFFLINE.md` describe el modelo **por lote** y lleva un aviso al frente diciéndolo. Útil para la semántica de la cola; histórico para todo lo que diga de reservar folios. **El contrato vivo es esta sección.**
 
 ### Conceptos
 
 | Término | Qué es |
 |---|---|
-| **Folio reservado** | Un número de ticket con su firma HMAC, generado **antes** de que exista la venta |
-| **Lote** | Un bloque de folios, atado a un usuario, un dispositivo y **la caja abierta al reservarlo** |
+| **Taquilla registrada** | Un equipo con su llave pública en el servidor y una serie propia. Firma sus pases; no reserva nada *(modelo vigente)* |
+| **Folio reservado** | Un número de ticket con su firma HMAC, generado **antes** de que exista la venta *(modelo por lote)* |
+| **Lote** | Un bloque de folios, atado a un usuario, un dispositivo y **la caja abierta al reservarlo** *(modelo por lote)* |
 
-Estados del folio:
+Estados del folio, **solo en el modelo por lote** (en el vigente no hay fila de folio que cambie de estado: la unicidad la da el `@unique` de `numeroTicket` y el respaldo es la firma):
 
 ```
                     ┌─── conciliar ──────────> NO_UTILIZADO
@@ -2415,6 +2425,34 @@ RESERVADO ──────────┼─── invalidar el lote ──> I
 **Permisos:** todo se gobierna con `EmisionTickets`, igual que el resto de la emisión.
 
 **Solo efectivo.** Sin conexión no hay pasarela, así que no hay cobro con tarjeta: cualquier otra forma de pago se rechaza al subir.
+
+---
+
+### 18.0 `POST /dispositivos` (Habilitar la taquilla para vender sin conexión)
+
+Es el momento con red que el modo sin conexión necesita haber tenido alguna vez. El equipo deja su llave pública ECDSA P-256 y recibe su serie de folios; con eso firma sus propios pases el resto del turno, sin reservar folios por adelantado.
+
+* **Permiso requerido:** `Módulo: 'Sincronizacion'`, `Acción: 'Ver'`
+* **Request Body (JSON):** `idDispositivo` (texto, identificador estable del equipo), `llavePublica` (SPKI en base64), `nombre` (texto, opcional).
+* **Response (201):**
+
+```json
+{
+  "id": 4,
+  "idDispositivo": "18f8abc2-dfa0-46b8-8e1d-7f049d9a9dc6",
+  "nombre": "Taquilla 1",
+  "serie": "D04",
+  "ultimoCorrelativo": 0,
+  "revocado": false,
+  "caja": { "id": 98, "fechaCreacion": "2026-10-02T08:00:00.000Z" }
+}
+```
+
+> **Exige caja abierta: responde `409` con código `SIN_CAJA_ABIERTA` si no hay ninguna.** Toda venta sin conexión cuadra contra una caja. Sin esta comprobación el equipo se armaba igual, el taquillero cobraba el turno entero y el rechazo llegaba al sincronizar — con el dinero ya en el cajón y los visitantes dentro del parque, cuando no hay forma de deshacerlo. La exigencia va al habilitar porque es el único momento con red y sin dinero cobrado: ahí el remedio es abrir la caja y seguir.
+
+> **La caja viaja en esta respuesta a propósito**, para que el dispositivo no necesite un segundo viaje que puede fallar cuando ya no haya red.
+
+* **Otros errores:** `403` si el dispositivo está revocado (un administrador debe reactivarlo), `400` si la llave no es una SPKI P-256 legible — se valida antes de guardarla, porque una llave ilegible aceptada acá no falla ahora sino semanas después, en el torniquete y sin red.
 
 ---
 
@@ -2550,8 +2588,11 @@ Todo lo que va después de `montoCobrado` es el payload de `POST /tickets/emitir
 | `LOTE_INVALIDADO` | El lote se invalidó; ninguna venta suya puede subirse |
 | `PAGO_NO_EFECTIVO` | Offline solo se vende en efectivo |
 | `CATALOGO_INVALIDO` | Datos de la venta inválidos (atracción, país, categoría…) |
+| `ERROR_INTERNO` | **Falló el servidor, no la venta.** La venta se conserva en la cola y se reintenta más tarde: es el único código de esta tabla que **no** debe llevar a descartarla. El detalle queda en el log del servidor |
 
 > El resultado **por ítem** es lo que le permite al frontend distinguir *"no hubo red, reintento"* de *"el servidor lo rechazó, aviso al taquillero y no reintento"*. Sin esa distinción, la cola reintenta para siempre una venta que nunca va a entrar.
+
+> **`ERROR_INTERNO` es la tercera categoría, y existe porque faltaba.** Antes cualquier fallo no previsto del servidor salía como `CATALOGO_INVALIDO`, o sea como dato malo que no se reintenta — de modo que un bug del backend mandaba a descartar dinero ya cobrado. Pasó: un fallo al sellar el folio dejó toda la emisión firmada por taquilla sin poder sincronizar, reportada como catálogo inválido. Ante `ERROR_INTERNO` la venta **se conserva y se reintenta**; el mensaje lo dice explícitamente.
 
 #### Reglas que aplica el servidor
 
@@ -2711,8 +2752,8 @@ formularios de filtro del frontend.
   "datos": [
     {
       "clave": "ventas-por-vendedor",
-      "titulo": "Ventas por vendedor",
-      "descripcion": "Cuánto vendió cada cajero o vendedor en el período...",
+      "titulo": "Recaudación por colaborador",
+      "descripcion": "Cuánto vendió cada colaborador: tickets, personas atendidas, total y qué porcentaje representa.",
       "categoria": "Tickets",
       "moduloOrigen": "EmisionTickets",
       "soloSupervisor": false,
@@ -2722,15 +2763,15 @@ formularios de filtro del frontend.
           "clave": "periodo",
           "etiqueta": "Período",
           "tipo": "rangoFechas",
-          "descripcion": "Rango de fechas del reporte, ambas inclusive...",
+          "descripcion": "Rango de fechas del reporte, ambas inclusive.",
           "requerido": true,
           "parametros": ["desde", "hasta"]
         },
         {
           "clave": "vendedor",
-          "etiqueta": "Vendedor",
+          "etiqueta": "Colaborador",
           "tipo": "usuario",
-          "descripcion": "...",
+          "descripcion": "Nombre del colaborador que emitió el ticket.",
           "parametros": ["vendedor"]
         }
       ],
@@ -2758,7 +2799,7 @@ frontend no debe pintar el campo de petición en lenguaje natural.
 | Clave | Categoría | Módulo de permiso | Qué responde |
 |---|---|---|---|
 | `ventas-resumen` | Tickets | `EmisionTickets` | Recaudado, tickets, personas y ticket promedio del período, con una fila por día |
-| `ventas-por-vendedor` | Tickets | `EmisionTickets` | Cuánto vendió cada cajero y qué porcentaje del total representa |
+| `ventas-por-vendedor` | Tickets | `EmisionTickets` | Cuánto vendió cada colaborador y qué porcentaje del total representa. Se titula «Recaudación por colaborador»: la clave conserva la palabra anterior porque viaja en las URLs y queda escrita en la bitácora de cada generación |
 | `ventas-por-atraccion` | Tickets | `EmisionTickets` | Cuevas vs. mariposario, con segunda sección por tipo de recorrido |
 | `ventas-por-tipo-visitante` | Tickets | `EmisionTickets` | Adultos, niños, niños menores y centros educativos: personas y subtotal |
 | `ventas-por-origen` | Tickets | `EmisionTickets` | Nacional vs. extranjero, con segunda sección por país |
@@ -2787,7 +2828,7 @@ frontend no debe pintar el campo de petición en lenguaje natural.
 | Parámetro | Acepta | Notas |
 |---|---|---|
 | `desde` / `hasta` | `AAAA-MM-DD` | Ambas inclusive. Si se omiten, se usa el mes en curso. Máximo 366 días |
-| `vendedor`, `atraccion`, `origen`, `pais`, `guia`, `tipoVisitante`, `tipoRecorrido`, `formaPago`, `sector` | **id o nombre** | El frontend manda ids porque ya tiene los catálogos; también acepta el nombre y lo resuelve |
+| `vendedor`, `atraccion`, `origen`, `pais`, `guia`, `tipoVisitante`, `tipoRecorrido`, `formaPago`, `sector` | **id o nombre** | El frontend manda ids porque ya tiene los catálogos; también acepta el nombre y lo resuelve. `vendedor` es el colaborador que emitió el ticket: la etiqueta que devuelve la API dice «Colaborador», el nombre del parámetro no cambió |
 | `caja` | id de la apertura | Obligatorio en `arqueo-de-caja` |
 | `modulo`, `accion` | texto | Solo en los reportes de bitácora; coincidencia parcial |
 | `incluirAnulados` | `true` / `false` | Solo donde el reporte lo declara |
@@ -2796,7 +2837,7 @@ frontend no debe pintar el campo de petición en lenguaje natural.
 ```json
 {
   "clave": "ventas-por-vendedor",
-  "titulo": "Ventas por vendedor",
+  "titulo": "Recaudación por colaborador",
   "subtitulo": null,
   "periodo": { "desde": "2026-08-01", "hasta": "2026-08-31", "etiqueta": "1 al 31 de agosto de 2026" },
   "filtrosAplicados": [{ "etiqueta": "Atracción", "valor": "Cuevas Actun Kan" }],
@@ -2808,7 +2849,7 @@ frontend no debe pintar el campo de petición en lenguaje natural.
     {
       "titulo": null,
       "columnas": [
-        { "clave": "grupo", "titulo": "Vendedor", "formato": "texto", "ancho": 0.32 },
+        { "clave": "grupo", "titulo": "Colaborador", "formato": "texto", "ancho": 0.32 },
         { "clave": "tickets", "titulo": "Tickets", "formato": "entero", "total": "suma" },
         { "clave": "total", "titulo": "Total", "formato": "moneda", "total": "suma" },
         { "clave": "participacion", "titulo": "% del total", "formato": "porcentaje" }
@@ -2892,15 +2933,30 @@ URL navegar; el resto de la query string no cambia.
   proveedor es el recurso escaso)
 * **Request Body (JSON):**
 ```json
-{ "instruccion": "ventas del vendedor Juan en las cuevas en agosto, desglosadas por día" }
+{ "instruccion": "ventas del colaborador Juan en las cuevas en agosto, desglosadas por día" }
 ```
 
-La instrucción es texto libre, de 5 a 500 caracteres.
+La instrucción es texto libre, de 5 a 500 caracteres. El intérprete entiende tanto
+«colaborador» como «vendedor»: la etiqueta cambió, pero la palabra anterior sigue
+resolviendo a la misma dimensión, que es la que esperan quienes ya la usaban.
+
+**`pistasIa`, y por qué no lo vas a ver en la respuesta.** Cada reporte y cada filtro
+tienen dos textos: `descripcion`, escrita para la persona que la lee en pantalla, y
+`pistasIa`, que es el vocabulario y el criterio de desempate que solo le sirven al
+modelo —sinónimos, cuándo preferir un reporte sobre otro, qué claves puede emitir—.
+El prompt lleva los dos; `GET /reportes` **solo devuelve `descripcion`**, porque
+`listarCatalogo` descarta `pistasIa` antes de responder.
+
+Existe porque `descripcion` hacía doble trabajo: toda pista escrita para el intérprete
+terminaba pintada en la tarjeta del catálogo, que el frontend recorta a dos líneas
+(unos 110 caracteres). Ahí un sinónimo entre paréntesis estorba, y un párrafo de
+desempate no alcanza a decir nada. Si alguna vez `pistasIa` apareciera en la respuesta,
+**no se pinta**: es texto dirigido a un modelo, no a una persona.
 
 * **Response (200 OK - JSON):**
 ```json
 {
-  "instruccion": "ventas del vendedor Juan en las cuevas en agosto, desglosadas por día",
+  "instruccion": "ventas del colaborador Juan en las cuevas en agosto, desglosadas por día",
   "interpretacion": "Ventas de Juan Pérez en Cuevas Actun Kan, del 1 al 31 de agosto de 2026, por día.",
   "especificacion": {
     "clave": "ventas-resumen",

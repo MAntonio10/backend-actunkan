@@ -1,10 +1,14 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { CajasService } from '../cajas/cajas.service';
 import { EjecutorInfo } from '../common/utils/ejecutor.util';
-import { getFechaUTC6 } from '../common/utils/date.util';
+import { anioDeNegocio, getFechaUTC6 } from '../common/utils/date.util';
 import {
   construirRespuestaPaginada,
   resolverPaginacion,
@@ -41,7 +45,11 @@ export class DonacionesService {
    * La donación es efectivo que entra al mismo cajón que las ventas, así que
    * exige caja abierta: sin ella el dinero no tendría a qué arqueo pertenecer.
    */
-  private async exigirCajaAbierta(tx: any, idAperturaCaja: number, accion: string) {
+  private async exigirCajaAbierta(
+    tx: any,
+    idAperturaCaja: number,
+    accion: string,
+  ) {
     const caja = await tx.aperturaCaja.findUnique({
       where: { id: idAperturaCaja },
       include: { estado: true },
@@ -58,7 +66,9 @@ export class DonacionesService {
 
   async crear(dto: CrearDonacionDto, ejecutor?: EjecutorInfo) {
     if (!ejecutor?.id) {
-      throw new BadRequestException('No se pudo determinar el usuario que recibe la donación.');
+      throw new BadRequestException(
+        'No se pudo determinar el usuario que recibe la donación.',
+      );
     }
 
     const cajaActual = await this.cajasService.obtenerActual();
@@ -71,10 +81,18 @@ export class DonacionesService {
     return this.prisma.$transaction(
       async (tx) => {
         // La caja pudo cerrarse entre la consulta anterior y esta transacción.
-        await this.exigirCajaAbierta(tx, cajaActual.id, 'registrar la donación');
+        await this.exigirCajaAbierta(
+          tx,
+          cajaActual.id,
+          'registrar la donación',
+        );
 
         const ahora = getFechaUTC6();
-        const numeroRecibo = await generarCorrelativo(tx, SERIE_DONACION, ahora.getFullYear());
+        const numeroRecibo = await generarCorrelativo(
+          tx,
+          SERIE_DONACION,
+          anioDeNegocio(),
+        );
 
         const donacion = await tx.donacion.create({
           data: {
@@ -109,8 +127,14 @@ export class DonacionesService {
   }
 
   async findAll(query: QueryDonacionDto) {
-    const { buscar, idUsuario, idAperturaCaja, fechaInicio, fechaFin, incluirAnulados } =
-      query || {};
+    const {
+      buscar,
+      idUsuario,
+      idAperturaCaja,
+      fechaInicio,
+      fechaFin,
+      incluirAnulados,
+    } = query || {};
     const paginacion = resolverPaginacion(query);
 
     const where: any = {};
@@ -183,7 +207,9 @@ export class DonacionesService {
         // Cuántos trae el listado con el filtro aplicado; cuadra con la paginación.
         totalRecibos: total,
         recibosVigentes: vigentes._count._all,
-        montoRecaudado: (vigentes._sum.monto ?? new Prisma.Decimal(0)).toString(),
+        montoRecaudado: (
+          vigentes._sum.monto ?? new Prisma.Decimal(0)
+        ).toString(),
         // Se exponen para que la diferencia entre recibos y recaudación sea
         // explicable en pantalla, en vez de parecer un error de cuadre.
         recibosAnulados: anulados._count._all,
@@ -199,7 +225,9 @@ export class DonacionesService {
     });
 
     if (!donacion) {
-      throw new NotFoundException(`No se encontró la donación con el ID ${id}.`);
+      throw new NotFoundException(
+        `No se encontró la donación con el ID ${id}.`,
+      );
     }
 
     return donacion;
@@ -209,12 +237,18 @@ export class DonacionesService {
    * Baja lógica del recibo. Solo con la caja de origen abierta: anularlo después
    * del cierre cambiaría de forma retroactiva un arqueo ya guardado.
    */
-  async anular(id: number, motivo: string | undefined, ejecutor?: EjecutorInfo) {
+  async anular(
+    id: number,
+    motivo: string | undefined,
+    ejecutor?: EjecutorInfo,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const donacion = await tx.donacion.findUnique({ where: { id } });
 
       if (!donacion) {
-        throw new NotFoundException(`No se encontró la donación con el ID ${id}.`);
+        throw new NotFoundException(
+          `No se encontró la donación con el ID ${id}.`,
+        );
       }
 
       if (donacion.anulado) {
@@ -223,7 +257,11 @@ export class DonacionesService {
         );
       }
 
-      await this.exigirCajaAbierta(tx, donacion.idAperturaCaja, 'anular la donación');
+      await this.exigirCajaAbierta(
+        tx,
+        donacion.idAperturaCaja,
+        'anular la donación',
+      );
 
       const anulada = await tx.donacion.update({
         where: { id },
