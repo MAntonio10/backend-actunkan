@@ -20,8 +20,11 @@ COPY prisma.config.ts ./
 RUN npm ci
 
 # El esquema antes del resto del código: `prisma generate` solo depende de él.
+# `prisma.config.ts` exige DATABASE_URL aunque generar no se conecta a la base:
+# una dirección de relleno, solo para este paso, para no meter la real en la
+# imagen. En ejecución la real llega por el .env del compose.
 COPY prisma ./prisma
-RUN npx prisma generate
+RUN DATABASE_URL="sqlserver://localhost:1433;database=build;user=build;password=build" npx prisma generate
 
 COPY . .
 RUN npm run build
