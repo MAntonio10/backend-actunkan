@@ -8,6 +8,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { PAISES } from './data/paises';
+import { getFechaUTC6 } from '../src/common/utils/date.util';
 
 const prisma = new PrismaClient();
 
@@ -86,7 +87,7 @@ async function sembrarCatalogoPorCodigo(
 }
 
 async function main() {
-  const ahora = new Date();
+  const ahora = getFechaUTC6();
 
   // --- Países ---
   let paisesCreados = 0;

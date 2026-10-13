@@ -26,6 +26,7 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PAISES } from './data/paises';
+import { getFechaUTC6 } from '../src/common/utils/date.util';
 
 const prisma = new PrismaClient();
 
@@ -280,7 +281,9 @@ async function sembrarAdministrador(ahora: Date) {
 }
 
 async function main() {
-  const ahora = new Date();
+  // Reloj de pared de Guatemala, la convención de toda la base. Con `new Date()`
+  // las tarifas quedaban vigentes 6 horas en el futuro y no se podía vender.
+  const ahora = getFechaUTC6();
 
   await sembrarCatalogos(ahora);
   await sembrarPermisos();
