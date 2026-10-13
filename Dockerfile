@@ -11,6 +11,12 @@
 # --- Etapa 1: dependencias completas, cliente de Prisma y compilación --------
 FROM node:24-slim AS builder
 
+# La imagen slim no trae OpenSSL y el motor de Prisma lo necesita para elegir su
+# binario: sin él cae a openssl-1.1.x, que no existe en esta Debian, y el cliente
+# falla al conectar.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Los manifiestos primero: mientras no cambien, Docker reutiliza la capa de
@@ -41,6 +47,10 @@ CMD ["sh", "-c", "npx prisma db push && npx ts-node prisma/aplicar-indices-offli
 FROM node:24-slim AS runtime
 
 ENV NODE_ENV=production
+
+# Lo mismo que en la etapa de compilación: el motor de Prisma carga libssl.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
