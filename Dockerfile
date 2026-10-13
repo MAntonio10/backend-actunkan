@@ -39,9 +39,13 @@ RUN npm run build
 # `prisma db push` y los scripts de índices necesitan el CLI de Prisma y ts-node,
 # que son dependencias de desarrollo. Esta etapa los conserva para poder correr
 # esas tareas sin meterlas en la imagen que atiende peticiones.
+#
+# `seed-base.ts` va al final: siembra catálogos, permisos y el administrador
+# inicial (ADMIN_* del .env). Es aditivo, así que repetirlo sobre una base con
+# datos solo completa lo que falte.
 FROM builder AS tareas
 
-CMD ["sh", "-c", "npx prisma db push && npx ts-node prisma/aplicar-indices-offline.ts && npx ts-node prisma/aplicar-indices-reportes.ts"]
+CMD ["sh", "-c", "npx prisma db push && npx ts-node prisma/aplicar-indices-offline.ts && npx ts-node prisma/aplicar-indices-reportes.ts && npx ts-node prisma/seed-base.ts"]
 
 # --- Etapa 3: imagen de ejecución --------------------------------------------
 FROM node:24-slim AS runtime
