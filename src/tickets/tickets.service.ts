@@ -185,7 +185,9 @@ export class TicketsService {
     monto: Prisma.Decimal,
     concepto: string,
   ) {
-    if (opcionPago.esEfectivo) {
+    // Con monto cero (solo visitantes gratuitos) no hay nada que cobrar: pedirle a
+    // la pasarela un checkout de Q0 abortaba la venta o dejaba el pase inactivo.
+    if (opcionPago.esEfectivo || monto.isZero()) {
       return { estadoPago: ESTADO_PAGO_PAGADO, fechaPago: getFechaUTC6() };
     }
 

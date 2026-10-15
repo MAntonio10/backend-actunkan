@@ -311,6 +311,21 @@ describe('TicketsService', () => {
       expect(tx.ticket.create).not.toHaveBeenCalled();
     });
 
+    it('con monto cero (solo gratuitos) no pide link y queda PAGADO', async () => {
+      tx.tarifa.findFirst.mockResolvedValue({ precio: 0 });
+
+      const res = await service.emitir(
+        dtoBase({ idOpcionPago: TARJETA.id }),
+        EJECUTOR,
+      );
+
+      expect(recurrente.crearCheckout).not.toHaveBeenCalled();
+      const pago = tx.ticket.create.mock.calls[0][0].data.ticketPagos.create;
+      expect(pago.estadoPago).toBe('PAGADO');
+      expect(pago.checkoutUrl).toBeUndefined();
+      expect(res.tickets[0].estadoPago).toBe('PAGADO');
+    });
+
     it('el efectivo no toca la pasarela y queda PAGADO al instante', async () => {
       tx.opcionPago.findUnique.mockResolvedValue(EFECTIVO);
 
