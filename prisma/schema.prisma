@@ -230,14 +230,30 @@ model VisitantePorTicket {
 }
 
 model TipoRecorrido {
-  id                 Int       @id @default(autoincrement())
+  id                 Int                 @id @default(autoincrement())
   /// Clave estable para reglas de negocio: 'corto' | 'largo'.
-  codigo             String    @unique @db.NVarChar(50)
+  codigo             String              @unique @db.NVarChar(50)
   nombre             String
-  fechaCreacion      DateTime  @db.DateTime2
-  fechaActualizacion DateTime? @db.DateTime2
-  anulado            Boolean   @default(false)
+  fechaCreacion      DateTime            @db.DateTime2
+  fechaActualizacion DateTime?           @db.DateTime2
+  anulado            Boolean             @default(false)
   tickets            Ticket[]
+  duraciones         DuracionRecorrido[]
+}
+
+/// Duración aproximada de cada tipo de recorrido en cada atracción: el corto de
+/// las cuevas no dura lo mismo que el del mariposario. Solo informativa.
+model DuracionRecorrido {
+  id                 Int           @id @default(autoincrement())
+  idAtraccion        Int
+  idTipoRecorrido    Int
+  minutos            Int
+  fechaCreacion      DateTime      @db.DateTime2
+  fechaActualizacion DateTime?     @db.DateTime2
+  atraccion          Atraccion     @relation(fields: [idAtraccion], references: [id])
+  tipoRecorrido      TipoRecorrido @relation(fields: [idTipoRecorrido], references: [id])
+
+  @@unique([idAtraccion, idTipoRecorrido])
 }
 
 model TipoVisitante {
@@ -253,15 +269,16 @@ model TipoVisitante {
 }
 
 model Atraccion {
-  id                 Int       @id @default(autoincrement())
+  id                  Int                 @id @default(autoincrement())
   /// 'cuevas' | 'mariposario'.
-  codigo             String    @unique @db.NVarChar(50)
-  nombre             String    @db.NVarChar(255)
-  fechaCreacion      DateTime  @db.DateTime2
-  fechaActualizacion DateTime? @db.DateTime2
-  anulado            Boolean   @default(false)
-  tickets            Ticket[]
-  tarifas            Tarifa[]
+  codigo              String              @unique @db.NVarChar(50)
+  nombre              String              @db.NVarChar(255)
+  fechaCreacion       DateTime            @db.DateTime2
+  fechaActualizacion  DateTime?           @db.DateTime2
+  anulado             Boolean             @default(false)
+  tickets             Ticket[]
+  tarifas             Tarifa[]
+  duracionesRecorrido DuracionRecorrido[]
 }
 
 model OrigenVisitante {

@@ -282,6 +282,7 @@ export class TicketsService {
       guias,
       tarifas,
       tarifaGuia,
+      duracionesRecorrido,
     ] = await Promise.all([
       this.prisma.atraccion.findMany({
         where: { anulado: false },
@@ -331,6 +332,9 @@ export class TicketsService {
         where: { vigenteHasta: null },
         select: { precio: true },
       }),
+      this.prisma.duracionRecorrido.findMany({
+        select: { idAtraccion: true, idTipoRecorrido: true, minutos: true },
+      }),
     ]);
 
     return {
@@ -345,6 +349,7 @@ export class TicketsService {
       // emitir, así que esto es solo para que el formulario muestre el total.
       tarifas,
       precioTicketGuia: tarifaGuia ? tarifaGuia.precio : null,
+      duracionesRecorrido,
     };
   }
 

@@ -1822,6 +1822,7 @@ Editar un precio **no sobrescribe** la fila: cierra la vigencia de la tarifa act
 | GET | `/tarifas/guia` | `EmisionTickets` / `Ver` | Tarifa vigente del ticket de guía sin carnet |
 | PATCH | `/tarifas` | `EmisionTickets` / `Editar` | `{ idAtraccion, idOrigen, idTipoVisitante, precio }` |
 | PATCH | `/tarifas/guia` | `EmisionTickets` / `Editar` | `{ precio }` |
+| PATCH | `/tarifas/duracion-recorrido` | `EmisionTickets` / `Editar` | `{ idAtraccion, idTipoRecorrido, minutos }` (1–1440). Crea o reemplaza la duración de ese recorrido en esa atracción |
 
 Validación: se rechaza precio ≤ 0 salvo en la categoría `nino_menor`, la única que admite Q0.
 
@@ -1870,7 +1871,8 @@ Atracciones, orígenes, países, tipos y formas de pago **no tienen CRUD propio*
   "tarifas": [
     { "idAtraccion": 1, "idOrigen": 1, "idTipoVisitante": 1, "precio": "20.0000" }
   ],
-  "precioTicketGuia": "15.0000"
+  "precioTicketGuia": "15.0000",
+  "duracionesRecorrido": [{ "idAtraccion": 1, "idTipoRecorrido": 1, "minutos": 45 }]
 }
 ```
 

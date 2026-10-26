@@ -52,9 +52,11 @@ const TIPOS_VISITANTE = [
 ];
 
 const TIPOS_RECORRIDO = [
-  { codigo: 'corto', nombre: 'Recorrido corto (~45 minutos)' },
-  { codigo: 'largo', nombre: 'Recorrido largo (~2 horas)' },
+  { codigo: 'corto', nombre: 'Recorrido corto' },
+  { codigo: 'largo', nombre: 'Recorrido largo' },
 ];
+
+const DURACION_RECORRIDO_MIN: Record<string, number> = { corto: 45, largo: 120 };
 
 const OPCIONES_PAGO = [
   { nombre: 'Efectivo', esEfectivo: true },
@@ -140,7 +142,28 @@ async function sembrarCatalogos(ahora: Date) {
     TIPOS_VISITANTE,
     ahora,
   );
-  await sembrarCatalogoPorCodigo(prisma.tipoRecorrido, 'Tipos de recorrido', TIPOS_RECORRIDO, ahora);
+  const tiposRecorrido = await sembrarCatalogoPorCodigo(
+    prisma.tipoRecorrido,
+    'Tipos de recorrido',
+    TIPOS_RECORRIDO,
+    ahora,
+  );
+
+  // Duración inicial de cada recorrido en cada atracción; se ajusta después desde
+  // «Editar precios». No toca las que ya existan.
+  let duracionesCreadas = 0;
+  for (const idAtraccion of Object.values(atracciones)) {
+    for (const [codigo, minutos] of Object.entries(DURACION_RECORRIDO_MIN)) {
+      const clave = { idAtraccion, idTipoRecorrido: tiposRecorrido[codigo] };
+      if (!(await prisma.duracionRecorrido.findUnique({ where: { idAtraccion_idTipoRecorrido: clave } }))) {
+        await prisma.duracionRecorrido.create({
+          data: { ...clave, minutos, fechaCreacion: ahora, fechaActualizacion: ahora },
+        });
+        duracionesCreadas++;
+      }
+    }
+  }
+  console.log(`Duraciones de recorrido: ${duracionesCreadas} creadas.`);
 
   let opcionesCreadas = 0;
   for (const opcion of OPCIONES_PAGO) {

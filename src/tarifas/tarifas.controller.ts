@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Patch, Query, Request } from '@nestjs/common';
 import { TarifasService } from './tarifas.service';
 import {
+  ActualizarDuracionRecorridoDto,
   ActualizarTarifaDto,
   ActualizarTarifaGuiaDto,
 } from './dto/actualizar-tarifa.dto';
@@ -43,5 +44,17 @@ export class TarifasController {
     @Request() req: any,
   ) {
     return this.tarifasService.actualizarTarifaGuia(dto, obtenerEjecutor(req));
+  }
+
+  @Patch('duracion-recorrido')
+  @RequirePermission('EmisionTickets', 'Editar')
+  actualizarDuracionRecorrido(
+    @Body() dto: ActualizarDuracionRecorridoDto,
+    @Request() req: any,
+  ) {
+    return this.tarifasService.actualizarDuracionRecorrido(
+      dto,
+      obtenerEjecutor(req),
+    );
   }
 }

@@ -15,6 +15,7 @@ import {
 import {
   ActualizarTarifaDto,
   ActualizarTarifaGuiaDto,
+  ActualizarDuracionRecorridoDto,
 } from './dto/actualizar-tarifa.dto';
 import { QueryHistoricoDto } from './dto/query-historico.dto';
 
@@ -220,6 +221,56 @@ export class TarifasService {
       });
 
       return nueva;
+    });
+  }
+
+  /** Fija la duración de un tipo de recorrido en una atracción (crea o reemplaza). */
+  async actualizarDuracionRecorrido(
+    dto: ActualizarDuracionRecorridoDto,
+    ejecutor?: EjecutorInfo,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const [atraccion, tipo] = await Promise.all([
+        tx.atraccion.findUnique({ where: { id: dto.idAtraccion } }),
+        tx.tipoRecorrido.findUnique({ where: { id: dto.idTipoRecorrido } }),
+      ]);
+      if (!atraccion || atraccion.anulado) {
+        throw new BadRequestException('La atracción no existe o está anulada.');
+      }
+      if (!tipo || tipo.anulado) {
+        throw new BadRequestException(
+          'El tipo de recorrido no existe o está anulado.',
+        );
+      }
+
+      const ahora = getFechaUTC6();
+      const clave = {
+        idAtraccion: dto.idAtraccion,
+        idTipoRecorrido: dto.idTipoRecorrido,
+      };
+      const previa = await tx.duracionRecorrido.findUnique({
+        where: { idAtraccion_idTipoRecorrido: clave },
+      });
+      const guardada = await tx.duracionRecorrido.upsert({
+        where: { idAtraccion_idTipoRecorrido: clave },
+        create: {
+          ...clave,
+          minutos: dto.minutos,
+          fechaCreacion: ahora,
+          fechaActualizacion: ahora,
+        },
+        update: { minutos: dto.minutos, fechaActualizacion: ahora },
+      });
+
+      await BitacoraService.registrarEnTransaccion(tx, {
+        idUsuario: ejecutor?.id,
+        usuarioNombre: await this.obtenerNombreEjecutor(tx, ejecutor),
+        accion: 'EDITAR_DURACION_RECORRIDO',
+        modulo: 'Tarifas',
+        descripcion: `Duración de '${tipo.nombre}' en '${atraccion.nombre}': ${previa ? `${previa.minutos} min` : 'sin definir'} -> ${dto.minutos} min.`,
+      });
+
+      return guardada;
     });
   }
 }

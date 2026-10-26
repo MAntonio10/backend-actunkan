@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { TarifasService } from './tarifas.service';
+import { BitacoraService } from '../bitacora/bitacora.service';
 
 describe('TarifasService', () => {
   let service: TarifasService;
@@ -82,6 +83,42 @@ describe('TarifasService', () => {
       expect(Array.isArray(res)).toBe(true);
       expect(argsFindMany().skip).toBeUndefined();
       expect(argsFindMany().take).toBeUndefined();
+    });
+  });
+
+  describe('actualizarDuracionRecorrido', () => {
+    let tx: any;
+
+    beforeEach(() => {
+      tx = {
+        atraccion: { findUnique: jest.fn().mockResolvedValue({ id: 1, nombre: 'Cuevas', anulado: false }) },
+        tipoRecorrido: { findUnique: jest.fn().mockResolvedValue({ id: 2, nombre: 'Recorrido corto', anulado: false }) },
+        duracionRecorrido: {
+          findUnique: jest.fn().mockResolvedValue({ minutos: 45 }),
+          upsert: jest.fn().mockResolvedValue({ minutos: 30 }),
+        },
+        usuario: { findUnique: jest.fn().mockResolvedValue(null) },
+      };
+      prisma.$transaction = jest.fn((fn: any) => fn(tx));
+      jest.spyOn(BitacoraService, 'registrarEnTransaccion').mockResolvedValue(undefined as any);
+    });
+
+    it('guarda los minutos de esa atracción y ese recorrido, sin tocar los demás', async () => {
+      await service.actualizarDuracionRecorrido({ idAtraccion: 1, idTipoRecorrido: 2, minutos: 30 });
+
+      const args = tx.duracionRecorrido.upsert.mock.calls[0][0];
+      expect(args.where).toEqual({ idAtraccion_idTipoRecorrido: { idAtraccion: 1, idTipoRecorrido: 2 } });
+      expect(args.update).toMatchObject({ minutos: 30 });
+      expect(args.create).toMatchObject({ idAtraccion: 1, idTipoRecorrido: 2, minutos: 30 });
+    });
+
+    it('rechaza una atracción anulada', async () => {
+      tx.atraccion.findUnique.mockResolvedValue({ id: 1, nombre: 'Cuevas', anulado: true });
+
+      await expect(
+        service.actualizarDuracionRecorrido({ idAtraccion: 1, idTipoRecorrido: 2, minutos: 30 }),
+      ).rejects.toThrow('anulada');
+      expect(tx.duracionRecorrido.upsert).not.toHaveBeenCalled();
     });
   });
 });

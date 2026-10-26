@@ -43,3 +43,18 @@ export class ActualizarTarifaGuiaDto {
   @Max(99999999999999, { message: 'El precio excede el máximo permitido.' })
   precio: number;
 }
+
+export class ActualizarDuracionRecorridoDto {
+  @IsInt({ message: 'El ID de la atracción debe ser un número entero.' })
+  @IsPositive({ message: 'El ID de la atracción debe ser positivo.' })
+  idAtraccion: number;
+
+  @IsInt({ message: 'El ID del tipo de recorrido debe ser un número entero.' })
+  @IsPositive({ message: 'El ID del tipo de recorrido debe ser positivo.' })
+  idTipoRecorrido: number;
+
+  @IsInt({ message: 'La duración debe ser un número entero de minutos.' })
+  @Min(1, { message: 'La duración debe ser de al menos 1 minuto.' })
+  @Max(1440, { message: 'La duración no puede pasar de 24 horas.' })
+  minutos: number;
+}

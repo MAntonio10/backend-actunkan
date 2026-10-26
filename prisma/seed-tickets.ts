@@ -31,8 +31,8 @@ const TIPOS_VISITANTE = [
 ];
 
 const TIPOS_RECORRIDO = [
-  { codigo: 'corto', nombre: 'Recorrido corto (~45 minutos)' },
-  { codigo: 'largo', nombre: 'Recorrido largo (~2 horas)' },
+  { codigo: 'corto', nombre: 'Recorrido corto' },
+  { codigo: 'largo', nombre: 'Recorrido largo' },
 ];
 
 const OPCIONES_PAGO = [
